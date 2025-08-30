@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>애플페이 가맹점 찾기</title>
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="color-scheme" content="light" />
+  <!-- Kakao Maps JS (services + clusterer) -->
+  <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer"></script>
+</head>
+<body>
+  <!-- Topbar -->
+  <div class="topbar" role="banner">
+    <div class="brand">애플페이 가맹점 찾기</div>
+    <div class="search-box" role="search">
+      <input id="search" placeholder="상호/브랜드 검색 (예: 스타벅스, GS25)" aria-label="검색어" />
+      <button id="search-submit" aria-label="검색">🔎</button>
+    </div>
+    <div class="actions">
+      <button id="btn-geoloc" title="내 위치" aria-label="내 위치">📍</button>
+      <button id="btn-scan" title="현재 화면 재스캔" aria-label="현재 화면 재스캔">🧭</button>
+      <button id="btn-add" title="가맹점 제보(GitHub)" aria-label="가맹점 제보">➕</button>
+      <button id="btn-center" title="원주 터미널로" aria-label="원주 터미널로">🎯</button>
+    </div>
+  </div>
+
+  <!-- 브랜드 필터(애플페이 지원 가정된 브랜드만 노출) -->
+  <div class="chipbar" role="group" aria-label="브랜드 필터">
+    <label class="chip active" data-brand="gs25"><input type="checkbox" checked>🛒 GS25</label>
+    <label class="chip active" data-brand="starbucks"><input type="checkbox" checked>☕ 스타벅스</label>
+    <!-- 예) CU를 추가하려면:
+    <label class="chip active" data-brand="cu"><input type="checkbox" checked>🛒 CU</label>
+    -->
+  </div>
+
+  <!-- 지도 -->
+  <div id="map" role="region" aria-label="Myapplepaymaps"></div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script>
+  // =========================
+  // Config
+  // =========================
+  const CFG = {
+    OWNER: 'diligencefrozen',
+    REPO:  'NFCMAP-KR',
+    ISSUE_LABEL: 'add-merchant',
+    CENTER: { lat: 37.345040, lng: 127.930825 }, // 원주종합버스터미널
+    INIT_LEVEL: 5,       // 카카오 레벨(낮을수록 확대)
+    MAX_PAGES: 3,        // Places 한 번에 15개 → 최대 45개/브랜드/스캔
+    DEBOUNCE_MS: 600
+  };
+
+  // “애플페이 지원”으로 간주하여 표시할 브랜드만 정의
+  const APPLE_BRANDS = [
+    { id:'gs25',      label:'편의점', icon:'🛒', keywords:['GS25','지에스25','GS 25'] },
+    { id:'starbucks', label:'카페',   icon:'☕', keywords:['스타벅스','Starbucks'] }
+    // { id:'cu', label:'편의점', icon:'🛒', keywords:['CU','씨유'] }
+  ];
+
+  // 카카오 카테고리 코드 매핑(검색 효율 ↑)
+  // 편의점: CS2, 카페: CE7
+  const BRAND_CATEGORY = {
+    gs25: 'CS2',
+    starbucks: 'CE7'
+    // cu: 'CS2'
+  };
+
+  // =========================
+  // State
+  // =========================
+  let map, ps, clusterer, infowindow;
+  let allMarkers = [];            // 현재 클러스터에 올릴 마커 목록
+  let debounceTimer = null;
+  const activeBrands = new Set(APPLE_BRANDS.map(b=>b.id)); // chip 체크된 브랜드
+
+  // =========================
+  // Utils
+  // =========================
+  const $  = (s, r=document)=> r.querySelector(s);
+  const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
+  const esc = (s='') => String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[m]));
+
+  function toast(msg){
+    const el = $('#toast'); if(!el) return;
+    el.textContent = msg; el.classList.add('show');
+    clearTimeout(el._t); el._t = setTimeout(()=> el.classList.remove('show'), 1800);
+  }
+
+  // 결과에서 지정 브랜드인지 최종 판정(이름 키워드 매칭)
+  function brandOf(place){
+    const name = (place.place_name||'');
+    for(const b of APPLE_BRANDS){
+      if(b.keywords.some(k=> name.toLowerCase().includes(k.toLowerCase()))) return b;
+    }
+    return null;
+  }
+
+  function buildPopupHTML(place, br){
+    const addr  = place.road_address_name || place.address_name || '';
+    const tel   = place.phone || '';
+    const url   = place.place_url || '';
+    const parts = [];
+    parts.push(`<div class="title">${esc(place.place_name||'상호명')}</div>`);
+    if(addr) parts.push(`<div class="row">주소: ${esc(addr)}</div>`);
+    if(tel)  parts.push(`<div class="row">전화: <a href="tel:${esc(tel)}">${esc(tel)}</a></div>`);
+    parts.push(`<div class="row">애플페이: <b>지원(브랜드 지정)</b></div>`);
+    parts.push(`<div class="row">분류: ${esc(br.label)}</div>`);
+    if(url)  parts.push(`<div class="row"><a href="${esc(url)}" target="_blank" rel="noopener">상세 보기</a></div>`);
+    return `<div class="popup">${parts.join('')}</div>`;
+  }
+
+  function createMarker(place, br){
+    const pos = new kakao.maps.LatLng(+place.y, +place.x);
+    const marker = new kakao.maps.Marker({ position: pos, title: place.place_name });
+    kakao.maps.event.addListener(marker, 'click', ()=>{
+      const html = buildPopupHTML(place, br);
+      infowindow.setContent(html);
+      infowindow.open(map, marker);
+    });
+    marker.__brand = br;
+    marker.__place = place;
+    return marker;
+  }
+
+  function setMarkersToCluster(markers){
+    clusterer.clear();
+    clusterer.addMarkers(markers);
+  }
+
+  function filterMarkersByText(q){
+    const qq = (q||'').trim().toLowerCase();
+    const filtered = !qq ? allMarkers : allMarkers.filter(m=>{
+      const p = m.__place;
+      const hay = `${p.place_name||''} ${p.road_address_name||''} ${p.address_name||''} ${p.phone||''}`.toLowerCase();
+      return hay.includes(qq);
+    });
+    setMarkersToCluster(filtered);
+    toast(`표시됨: ${filtered.length}곳`);
+  }
+
+  function openIssueWith(lat, lng){
+    const base = `https://github.com/${encodeURIComponent(CFG.OWNER)}/${encodeURIComponent(CFG.REPO)}/issues/new`;
+    const params = new URLSearchParams();
+    params.set('title', '[Add] Apple Pay Merchant');
+    params.set('labels', CFG.ISSUE_LABEL);
+    const body = [
+      '**상호명**\n',
+      '**카테고리**\nconv / cafe / resto / mart / bakery / pharmacy / transport / other\n',
+      '**위도/경도**\n', `lat: ${lat}\nlon: ${lng}\n`,
+      '**애플페이** (해당에 체크)\n', '- [ ] Contactless\n- [ ] In-App\n- [ ] Express\n',
+      '**비고/출처(선택)**\n'
+    ].join('\n');
+    params.set('body', body);
+    window.open(`${base}?${params.toString()}`, '_blank');
+  }
+
+  // =========================
+  // Kakao Places: 카테고리 검색(페이지 순회)
+  // =========================
+  function categorySearchOnce(groupCode, bounds, page=1){
+    return new Promise((resolve,reject)=>{
+      ps.categorySearch(groupCode, (data, status, pagination)=>{
+        if(status === kakao.maps.services.Status.OK){
+          resolve({ data, pagination });
+        }else if(status === kakao.maps.services.Status.ZERO_RESULT){
+          resolve({ data:[], pagination:null });
+        }else{
+          reject(new Error('Places error: '+status));
+        }
+      }, { bounds, page });
+    });
+  }
+
+  async function searchCategoryInBounds(groupCode, bounds){
+    const results = [];
+    for(let page=1; page<=CFG.MAX_PAGES; page++){
+      try{
+        const { data } = await categorySearchOnce(groupCode, bounds, page);
+        results.push(...data);
+        if(data.length < 15) break; // 다음 페이지 없음
+      }catch(e){ break; }
+    }
+    return results;
+  }
+
+  // =========================
+  // 스캔: 화면(BBox) 안에서 카테고리 → 브랜드 필터
+  // =========================
+  async function scanInView(){
+    if(!map) return;
+
+    // 너무 넓으면 API 45개 제한으로 누락 ↑
+    if(map.getLevel() > 7){ toast('지도를 조금 더 확대해 주세요'); return; }
+
+    toast('가맹점 불러오는 중…');
+    const bounds = map.getBounds();
+    const uniq = new Map(); // place id로 중복 제거
+
+    // 활성화된 브랜드만
+    const brandIds   = Array.from(activeBrands);
+    const brandSpecs = APPLE_BRANDS.filter(b=> brandIds.includes(b.id));
+
+    for(const spec of brandSpecs){
+      const code = BRAND_CATEGORY[spec.id];
+      if(!code) continue;
+
+      // 화면 내 해당 카테고리 싹 긁기
+      const list = await searchCategoryInBounds(code, bounds);
+
+      for(const p of list){
+        const lat = +p.y, lng = +p.x;
+        if(!isFinite(lat) || !isFinite(lng)) continue;
+        if(!bounds.contain(new kakao.maps.LatLng(lat, lng))) continue;
+
+        // 이름 키워드로 최종 브랜드 필터
+        const br = brandOf(p);
+        if(!br) continue;
+
+        if(!uniq.has(p.id)) uniq.set(p.id, { place: p, br });
+      }
+    }
+
+    // 마커 생성 & 클러스터 갱신
+    const rows = Array.from(uniq.values());
+    allMarkers = rows.map(({ place, br }) => createMarker(place, br));
+    setMarkersToCluster(allMarkers);
+    toast(`표시됨: ${allMarkers.length}곳`);
+  }
+
+  function scheduleScan(){
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(scanInView, CFG.DEBOUNCE_MS);
+  }
+
+  // =========================
+  // Init
+  // =========================
+  window.addEventListener('DOMContentLoaded', ()=>{
+    // 맵
+    map = new kakao.maps.Map(document.getElementById('map'), {
+      center: new kakao.maps.LatLng(CFG.CENTER.lat, CFG.CENTER.lng),
+      level: CFG.INIT_LEVEL
+    });
+
+    ps = new kakao.maps.services.Places(map);
+    infowindow = new kakao.maps.InfoWindow({ zIndex: 2 });
+    clusterer = new kakao.maps.MarkerClusterer({
+      map, averageCenter:true, minLevel:6
+    });
+
+    // 지도 이동/확대 시 자동 스캔(디바운스)
+    kakao.maps.event.addListener(map, 'idle', scheduleScan);
+
+    // 지오로케이션 → 스캔
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(pos=>{
+        const { latitude, longitude } = pos.coords;
+        map.setCenter(new kakao.maps.LatLng(latitude, longitude));
+        map.setLevel(4);
+        scanInView();
+      }, ()=>{
+        scanInView();
+      }, { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
+    }else{
+      scanInView();
+    }
+
+    // 버튼들
+    $('#btn-geoloc').addEventListener('click', ()=>{
+      if(!navigator.geolocation){ toast('이 브라우저는 위치 기능을 지원하지 않아요'); return; }
+      navigator.geolocat
