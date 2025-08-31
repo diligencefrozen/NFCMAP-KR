@@ -8,6 +8,24 @@
   <meta name="color-scheme" content="light" />
   <!-- Kakao Maps JS (services + clusterer) - autoload=false 로드 후 kakao.maps.load(init) -->
   <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer&autoload=false"></script>
+
+  <!-- ✅ 최소한의 배너 스타일(외부 CSS 수정 없이) -->
+  <style>
+    .quota-banner{
+      position:fixed; z-index:601;
+      left:50%; transform:translateX(-50%);
+      top:calc(env(safe-area-inset-top,0px) + 110px);
+      background:#fee2e2; color:#991b1b; border:1px solid #fecaca;
+      border-radius:.6rem; padding:.5rem .75rem; box-shadow:0 2px 10px rgba(0,0,0,.06);
+      display:flex; align-items:center; gap:.6rem;
+    }
+    .quota-banner button{
+      border:1px solid #fecaca; background:#fff; border-radius:999px; padding:.25rem .6rem; cursor:pointer;
+    }
+    @media (max-width:600px){
+      .quota-banner{ top:calc(env(safe-area-inset-top,0px)+128px); left:8px; right:8px; transform:none; justify-content:space-between; }
+    }
+  </style>
 </head>
 <body>
   <!-- Topbar -->
@@ -40,6 +58,12 @@
   <!-- Toast -->
   <div id="toast" class="toast" aria-live="polite"></div>
 
+  <!-- ✅ Quota 안내 배너 -->
+  <div id="quota-banner" class="quota-banner" role="alert" aria-live="assertive" hidden>
+    <span>카카오 지도 API 요청 한도를 초과했을 수 있어요. 잠시 후 다시 시도해 주세요.</span>
+    <button id="quota-retry" type="button">다시 시도</button>
+  </div>
+
   <script>
   // =========================
   // Config
@@ -71,7 +95,7 @@
   let allMarkers = [];     // 애플브랜드 마커(클러스터 대상)
   let searchMarkers = [];  // 일반 키워드 검색 마커(임시)
   let debounceTimer = null;
-  let isSearchMode = false; // 🔸검색모드(전국/화면내 키워드 결과 표시 중)면 자동 스캔 중지
+  let isSearchMode = false; // 검색모드(전국/화면내 키워드 결과 표시 중)면 자동 스캔 중지
   const activeBrands = new Set(APPLE_BRANDS.map(b=>b.id));
 
   // =========================
@@ -86,6 +110,50 @@
     el.textContent = msg; el.classList.add('show');
     clearTimeout(el._t); el._t = setTimeout(()=> el.classList.remove('show'), 1800);
   }
+
+  // Quota guard (연속 오류 → 10분 쿨다운)
+  const QUOTA = {
+    tripped:false, until:0, recentErrors:[],
+    windowMs: 30*1000,   // 30초 동안
+    tripAfter: 3,        // 3회 에러면 한도 초과로 간주
+    coolDownMs: 10*60*1000 // 10분 멈춤
+  };
+  const now = ()=> Date.now();
+  const purgeOldErrors = ()=>{
+    const edge = now() - QUOTA.windowMs;
+    QUOTA.recentErrors = QUOTA.recentErrors.filter(t => t >= edge);
+  };
+  const recordSuccess = ()=>{
+    QUOTA.recentErrors = [];
+    if(QUOTA.tripped && now() >= QUOTA.until) clearQuotaLock();
+  };
+  const recordError = ()=>{
+    purgeOldErrors();
+    QUOTA.recentErrors.push(now());
+    if(QUOTA.recentErrors.length >= QUOTA.tripAfter) tripQuotaLock();
+  };
+  const tripQuotaLock = ()=>{
+    QUOTA.tripped = true;
+    QUOTA.until = now() + QUOTA.coolDownMs;
+    showQuotaBanner();
+  };
+  const clearQuotaLock = ()=>{
+    QUOTA.tripped = false; QUOTA.until = 0; QUOTA.recentErrors = [];
+    hideQuotaBanner();
+  };
+  const isQuotaLocked = ()=>{
+    if(!QUOTA.tripped) return false;
+    if(now() >= QUOTA.until){ clearQuotaLock(); return false; }
+    return true;
+  };
+  function showQuotaBanner(){ const el = $('#quota-banner'); if(el) el.hidden = false; }
+  function hideQuotaBanner(){ const el = $('#quota-banner'); if(el) el.hidden = true; }
+  document.addEventListener('click', e=>{
+    if(e.target && e.target.id === 'quota-retry'){
+      clearQuotaLock();
+      scanInView();
+    }
+  });
 
   // 결과에서 지정 브랜드인지 최종 판정(이름 키워드 매칭)
   function brandOf(place){
@@ -171,12 +239,18 @@
   // =========================
   function categorySearchOnce(groupCode, bounds, page=1){
     return new Promise((resolve,reject)=>{
+      // ✅ 한도 잠금 중이면 네트워크 호출 생략(빈 결과 반환)
+      if (isQuotaLocked()) return resolve({ data:[] });
+
       ps.categorySearch(groupCode, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
+          recordSuccess();
           resolve({ data });
         }else if(status === kakao.maps.services.Status.ZERO_RESULT){
+          recordSuccess();
           resolve({ data:[] });
         }else{
+          recordError(); showQuotaBanner();
           reject(new Error('Places error: '+status));
         }
       }, { bounds, page });
@@ -197,12 +271,17 @@
   // 🔸키워드 검색(옵션 객체로 bounds 유/무 지원)
   function keywordSearchOnce(keyword, opts={}, page=1){
     return new Promise((resolve,reject)=>{
+      if (isQuotaLocked()) return resolve({ data:[] });
+
       ps.keywordSearch(keyword, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
+          recordSuccess();
           resolve({ data });
         }else if(status === kakao.maps.services.Status.ZERO_RESULT){
+          recordSuccess();
           resolve({ data:[] });
         }else{
+          recordError(); showQuotaBanner();
           reject(new Error('Places error: '+status));
         }
       }, { ...opts, page });
@@ -225,10 +304,15 @@
   // =========================
   async function scanInView(){
     if(!map) return;
-    if(isSearchMode) return; // 🔸검색모드일 땐 자동 스캔 멈춤
-
-    // 너무 넓으면 API 45개 제한으로 누락 ↑
+    if(isSearchMode) return; // 검색모드일 땐 자동 스캔 멈춤
     if(map.getLevel() > 7){ toast('지도를 조금 더 확대해 주세요'); return; }
+
+    // ✅ 쿼터 잠금이면 네트워크 호출 대신 안내만
+    if (isQuotaLocked()){
+      showQuotaBanner();
+      toast('API 제한 중: 이미 불러온 결과만 이용 가능');
+      return;
+    }
 
     toast('가맹점 불러오는 중…');
     const bounds = map.getBounds();
@@ -304,13 +388,12 @@
       results = await keywordSearchPaged(q); // opts 생략 = 전국
     }
 
-    // 결과 표시
     if(results.length === 0){
       toast('검색 결과가 없습니다');
       return;
     }
 
-    // 🔸검색모드 활성화 (자동 스캔 중지)
+    // 검색모드 활성화 (자동 스캔 중지)
     isSearchMode = true;
 
     // 기존 검색 마커 정리 후 표시
