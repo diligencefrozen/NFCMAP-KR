@@ -194,7 +194,7 @@
     return results;
   }
 
-  // 키워드 검색(옵션 객체로 bounds 유/무 지원)
+  // 🔸키워드 검색(옵션 객체로 bounds 유/무 지원)
   function keywordSearchOnce(keyword, opts={}, page=1){
     return new Promise((resolve,reject)=>{
       ps.keywordSearch(keyword, (data, status)=>{
@@ -310,7 +310,7 @@
       return;
     }
 
-    // 검색모드 활성화 (자동 스캔 중지)
+    // 🔸검색모드 활성화 (자동 스캔 중지)
     isSearchMode = true;
 
     // 기존 검색 마커 정리 후 표시
