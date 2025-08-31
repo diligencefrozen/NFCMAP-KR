@@ -6,8 +6,8 @@
   <title>애플페이 가맹점 찾기</title>
   <link rel="stylesheet" href="styles.css" />
   <meta name="color-scheme" content="light" />
-  <!-- Kakao Maps JS (services + clusterer) -->
-  <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer"></script>
+  <!-- Kakao Maps JS (services + clusterer) - autoload=false 로드 후 kakao.maps.load(init) -->
+  <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer&autoload=false"></script>
 </head>
 <body>
   <!-- Topbar -->
@@ -73,9 +73,9 @@
   // State
   // =========================
   let map, ps, clusterer, infowindow;
-  let allMarkers = [];            // 현재 클러스터에 올릴 마커 목록
+  let allMarkers = [];
   let debounceTimer = null;
-  const activeBrands = new Set(APPLE_BRANDS.map(b=>b.id)); // chip 체크된 브랜드
+  const activeBrands = new Set(APPLE_BRANDS.map(b=>b.id));
 
   // =========================
   // Utils
@@ -90,7 +90,6 @@
     clearTimeout(el._t); el._t = setTimeout(()=> el.classList.remove('show'), 1800);
   }
 
-  // 결과에서 지정 브랜드인지 최종 판정(이름 키워드 매칭)
   function brandOf(place){
     const name = (place.place_name||'');
     for(const b of APPLE_BRANDS){
@@ -117,8 +116,7 @@
     const pos = new kakao.maps.LatLng(+place.y, +place.x);
     const marker = new kakao.maps.Marker({ position: pos, title: place.place_name });
     kakao.maps.event.addListener(marker, 'click', ()=>{
-      const html = buildPopupHTML(place, br);
-      infowindow.setContent(html);
+      infowindow.setContent(buildPopupHTML(place, br));
       infowindow.open(map, marker);
     });
     marker.__brand = br;
@@ -127,7 +125,13 @@
   }
 
   function setMarkersToCluster(markers){
-    clusterer.clear();
+    if (clusterer && typeof clusterer.clear === 'function') {
+      clusterer.clear();
+    } else if (clusterer) {
+      // 구형/환경차이 대비: 재생성
+      clusterer.setMap(null);
+      clusterer = new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:6 });
+    }
     clusterer.addMarkers(markers);
   }
 
@@ -181,7 +185,7 @@
       try{
         const { data } = await categorySearchOnce(groupCode, bounds, page);
         results.push(...data);
-        if(data.length < 15) break; // 다음 페이지 없음
+        if(data.length < 15) break;
       }catch(e){ break; }
     }
     return results;
@@ -198,9 +202,8 @@
 
     toast('가맹점 불러오는 중…');
     const bounds = map.getBounds();
-    const uniq = new Map(); // place id로 중복 제거
+    const uniq = new Map();
 
-    // 활성화된 브랜드만
     const brandIds   = Array.from(activeBrands);
     const brandSpecs = APPLE_BRANDS.filter(b=> brandIds.includes(b.id));
 
@@ -208,15 +211,14 @@
       const code = BRAND_CATEGORY[spec.id];
       if(!code) continue;
 
-      // 화면 내 해당 카테고리 싹 긁기
       const list = await searchCategoryInBounds(code, bounds);
 
       for(const p of list){
         const lat = +p.y, lng = +p.x;
         if(!isFinite(lat) || !isFinite(lng)) continue;
-        if(!bounds.contain(new kakao.maps.LatLng(lat, lng))) continue;
-
-        // 이름 키워드로 최종 브랜드 필터
+        if (typeof bounds.contain === 'function') {
+          if(!bounds.contain(new kakao.maps.LatLng(lat, lng))) continue;
+        }
         const br = brandOf(p);
         if(!br) continue;
 
@@ -224,7 +226,6 @@
       }
     }
 
-    // 마커 생성 & 클러스터 갱신
     const rows = Array.from(uniq.values());
     allMarkers = rows.map(({ place, br }) => createMarker(place, br));
     setMarkersToCluster(allMarkers);
@@ -237,10 +238,9 @@
   }
 
   // =========================
-  // Init
+  // Init (SDK 준비된 뒤 실행)
   // =========================
-  window.addEventListener('DOMContentLoaded', ()=>{
-    // 맵
+  function init(){
     map = new kakao.maps.Map(document.getElementById('map'), {
       center: new kakao.maps.LatLng(CFG.CENTER.lat, CFG.CENTER.lng),
       level: CFG.INIT_LEVEL
@@ -248,11 +248,8 @@
 
     ps = new kakao.maps.services.Places(map);
     infowindow = new kakao.maps.InfoWindow({ zIndex: 2 });
-    clusterer = new kakao.maps.MarkerClusterer({
-      map, averageCenter:true, minLevel:6
-    });
+    clusterer = new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:6 });
 
-    // 지도 이동/확대 시 자동 스캔(디바운스)
     kakao.maps.event.addListener(map, 'idle', scheduleScan);
 
     // 지오로케이션 → 스캔
@@ -262,9 +259,7 @@
         map.setCenter(new kakao.maps.LatLng(latitude, longitude));
         map.setLevel(4);
         scanInView();
-      }, ()=>{
-        scanInView();
-      }, { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
+      }, ()=> scanInView(), { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
     }else{
       scanInView();
     }
@@ -272,4 +267,49 @@
     // 버튼들
     $('#btn-geoloc').addEventListener('click', ()=>{
       if(!navigator.geolocation){ toast('이 브라우저는 위치 기능을 지원하지 않아요'); return; }
-      navigator.geolocat
+      navigator.geolocation.getCurrentPosition(pos=>{
+        const { latitude, longitude } = pos.coords;
+        map.setCenter(new kakao.maps.LatLng(latitude, longitude));
+        map.setLevel(4);
+        scanInView();
+      }, ()=> toast('위치 접근이 거부되었어요'));
+    });
+
+    $('#btn-scan').addEventListener('click', scanInView);
+
+    $('#btn-center').addEventListener('click', ()=>{
+      map.setCenter(new kakao.maps.LatLng(CFG.CENTER.lat, CFG.CENTER.lng));
+      map.setLevel(5);
+      scanInView();
+    });
+
+    $('#btn-add').addEventListener('click', ()=>{
+      toast('지도에서 위치를 클릭하면 깃허브 이슈 양식이 열립니다');
+      const once = kakao.maps.event.addListener(map, 'click', (e)=>{
+        const lat = e.latLng.getLat(), lng = e.latLng.getLng();
+        openIssueWith(lat, lng);
+        kakao.maps.event.removeListener(map, 'click', once);
+      });
+    });
+
+    // 검색 필터
+    $('#search-submit').addEventListener('click', ()=> filterMarkersByText($('#search').value));
+    $('#search').addEventListener('keydown', e=>{ if(e.key==='Enter') filterMarkersByText(e.target.value); });
+
+    // 브랜드 토글 칩
+    $$('.chipbar .chip').forEach(ch=>{
+      const id = ch.dataset.brand;
+      const input = ch.querySelector('input[type="checkbox"]');
+      input.addEventListener('change', ()=>{
+        ch.classList.toggle('active', input.checked);
+        if(input.checked) activeBrands.add(id); else activeBrands.delete(id);
+        scanInView();
+      });
+    });
+  }
+
+  // SDK 로드 완료 후 init 실행
+  window.addEventListener('DOMContentLoaded', ()=> kakao.maps.load(init));
+  </script>
+</body>
+</html>
