@@ -9,7 +9,6 @@
   <!-- Kakao Maps JS (services + clusterer) - autoload=false 로드 후 kakao.maps.load(init) -->
   <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer&autoload=false"></script>
 
-  <!-- ✅ 최소한의 배너 스타일(외부 CSS 수정 없이) -->
   <style>
     .quota-banner{
       position:fixed; z-index:601;
@@ -58,7 +57,7 @@
   <!-- Toast -->
   <div id="toast" class="toast" aria-live="polite"></div>
 
-  <!-- ✅ Quota 안내 배너 -->
+  <!-- Quota 안내 배너 -->
   <div id="quota-banner" class="quota-banner" role="alert" aria-live="assertive" hidden>
     <span>카카오 지도 API 요청 한도를 초과했을 수 있어요. 잠시 후 다시 시도해 주세요.</span>
     <button id="quota-retry" type="button">다시 시도</button>
@@ -203,7 +202,7 @@
   function clearSearchMarkers(){
     searchMarkers.forEach(m => m.setMap(null));
     searchMarkers = [];
-    isSearchMode = false; // 🔸검색모드 해제
+    isSearchMode = false; // 검색모드 해제
   }
 
   // 텍스트로 현재(애플브랜드) 마커 필터링
@@ -307,7 +306,7 @@
     if(isSearchMode) return; // 검색모드일 땐 자동 스캔 멈춤
     if(map.getLevel() > 7){ toast('지도를 조금 더 확대해 주세요'); return; }
 
-    // ✅ 쿼터 잠금이면 네트워크 호출 대신 안내만
+    //  쿼터 잠금이면 네트워크 호출 대신 안내만
     if (isQuotaLocked()){
       showQuotaBanner();
       toast('API 제한 중: 이미 불러온 결과만 이용 가능');
