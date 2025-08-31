@@ -14,7 +14,7 @@
   <div class="topbar" role="banner">
     <div class="brand">애플페이 가맹점 찾기</div>
     <div class="search-box" role="search">
-      <input id="search" placeholder="상호/브랜드 검색 (예: 스타벅스, GS25)" aria-label="검색어" />
+      <input id="search" placeholder="상호/브랜드 검색 (예: 밀알두레학교, 스타벅스, GS25)" aria-label="검색어" />
       <button id="search-submit" aria-label="검색">🔎</button>
     </div>
     <div class="actions">
@@ -61,19 +61,15 @@
     // { id:'cu', label:'편의점', icon:'🛒', keywords:['CU','씨유'] }
   ];
 
-  // 카카오 카테고리 코드 매핑(검색 효율 ↑)
-  // 편의점: CS2, 카페: CE7
-  const BRAND_CATEGORY = {
-    gs25: 'CS2',
-    starbucks: 'CE7'
-    // cu: 'CS2'
-  };
+  // 카테고리 코드(검색 효율 ↑) — 편의점 CS2, 카페 CE7
+  const BRAND_CATEGORY = { gs25:'CS2', starbucks:'CE7' };
 
   // =========================
   // State
   // =========================
   let map, ps, clusterer, infowindow;
-  let allMarkers = [];
+  let allMarkers = [];     // 애플브랜드 마커(클러스터 대상)
+  let searchMarkers = [];  // 일반 키워드 검색 마커(임시)
   let debounceTimer = null;
   const activeBrands = new Set(APPLE_BRANDS.map(b=>b.id));
 
@@ -90,6 +86,7 @@
     clearTimeout(el._t); el._t = setTimeout(()=> el.classList.remove('show'), 1800);
   }
 
+  // 결과에서 지정 브랜드인지 최종 판정(이름 키워드 매칭)
   function brandOf(place){
     const name = (place.place_name||'');
     for(const b of APPLE_BRANDS){
@@ -98,7 +95,7 @@
     return null;
   }
 
-  function buildPopupHTML(place, br){
+  function buildPopupHTML(place, br, isApple=true){
     const addr  = place.road_address_name || place.address_name || '';
     const tel   = place.phone || '';
     const url   = place.place_url || '';
@@ -106,8 +103,8 @@
     parts.push(`<div class="title">${esc(place.place_name||'상호명')}</div>`);
     if(addr) parts.push(`<div class="row">주소: ${esc(addr)}</div>`);
     if(tel)  parts.push(`<div class="row">전화: <a href="tel:${esc(tel)}">${esc(tel)}</a></div>`);
-    parts.push(`<div class="row">애플페이: <b>지원(브랜드 지정)</b></div>`);
-    parts.push(`<div class="row">분류: ${esc(br.label)}</div>`);
+    parts.push(`<div class="row">애플페이: <b>${isApple ? '지원(브랜드 지정)' : '미확인(일반 검색)'}</b></div>`);
+    if(br) parts.push(`<div class="row">분류: ${esc(br.label)}</div>`);
     if(url)  parts.push(`<div class="row"><a href="${esc(url)}" target="_blank" rel="noopener">상세 보기</a></div>`);
     return `<div class="popup">${parts.join('')}</div>`;
   }
@@ -116,7 +113,7 @@
     const pos = new kakao.maps.LatLng(+place.y, +place.x);
     const marker = new kakao.maps.Marker({ position: pos, title: place.place_name });
     kakao.maps.event.addListener(marker, 'click', ()=>{
-      infowindow.setContent(buildPopupHTML(place, br));
+      infowindow.setContent(buildPopupHTML(place, br, true));
       infowindow.open(map, marker);
     });
     marker.__brand = br;
@@ -128,13 +125,18 @@
     if (clusterer && typeof clusterer.clear === 'function') {
       clusterer.clear();
     } else if (clusterer) {
-      // 구형/환경차이 대비: 재생성
       clusterer.setMap(null);
       clusterer = new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:6 });
     }
     clusterer.addMarkers(markers);
   }
 
+  function clearSearchMarkers(){
+    searchMarkers.forEach(m => m.setMap(null));
+    searchMarkers = [];
+  }
+
+  // 텍스트로 현재(애플브랜드) 마커 필터링
   function filterMarkersByText(q){
     const qq = (q||'').trim().toLowerCase();
     const filtered = !qq ? allMarkers : allMarkers.filter(m=>{
@@ -143,7 +145,7 @@
       return hay.includes(qq);
     });
     setMarkersToCluster(filtered);
-    toast(`표시됨: ${filtered.length}곳`);
+    return filtered.length;
   }
 
   function openIssueWith(lat, lng){
@@ -163,7 +165,7 @@
   }
 
   // =========================
-  // Kakao Places: 카테고리 검색(페이지 순회)
+  // Kakao Places helpers
   // =========================
   function categorySearchOnce(groupCode, bounds, page=1){
     return new Promise((resolve,reject)=>{
@@ -178,12 +180,37 @@
       }, { bounds, page });
     });
   }
-
   async function searchCategoryInBounds(groupCode, bounds){
     const results = [];
     for(let page=1; page<=CFG.MAX_PAGES; page++){
       try{
         const { data } = await categorySearchOnce(groupCode, bounds, page);
+        results.push(...data);
+        if(data.length < 15) break;
+      }catch(e){ break; }
+    }
+    return results;
+  }
+
+  // 키워드 검색(일반)
+  function keywordSearchOnce(keyword, bounds, page=1){
+    return new Promise((resolve,reject)=>{
+      ps.keywordSearch(keyword, (data, status, pagination)=>{
+        if(status === kakao.maps.services.Status.OK){
+          resolve({ data, pagination });
+        }else if(status === kakao.maps.services.Status.ZERO_RESULT){
+          resolve({ data:[], pagination:null });
+        }else{
+          reject(new Error('Places error: '+status));
+        }
+      }, { bounds, page });
+    });
+  }
+  async function keywordSearchInBounds(keyword, bounds){
+    const results = [];
+    for(let page=1; page<=CFG.MAX_PAGES; page++){
+      try{
+        const { data } = await keywordSearchOnce(keyword, bounds, page);
         results.push(...data);
         if(data.length < 15) break;
       }catch(e){ break; }
@@ -216,9 +243,12 @@
       for(const p of list){
         const lat = +p.y, lng = +p.x;
         if(!isFinite(lat) || !isFinite(lng)) continue;
-        if (typeof bounds.contain === 'function') {
-          if(!bounds.contain(new kakao.maps.LatLng(lat, lng))) continue;
-        }
+
+        const contains = (typeof bounds.contains === 'function')
+          ? bounds.contains(new kakao.maps.LatLng(lat, lng))
+          : (typeof bounds.contain === 'function' ? bounds.contain(new kakao.maps.LatLng(lat, lng)) : true);
+        if(!contains) continue;
+
         const br = brandOf(p);
         if(!br) continue;
 
@@ -226,6 +256,7 @@
       }
     }
 
+    clearSearchMarkers(); // 검색 모드 잔재 제거
     const rows = Array.from(uniq.values());
     allMarkers = rows.map(({ place, br }) => createMarker(place, br));
     setMarkersToCluster(allMarkers);
@@ -235,6 +266,47 @@
   function scheduleScan(){
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(scanInView, CFG.DEBOUNCE_MS);
+  }
+
+  // =========================
+  // 검색 동작: 1) 현재 마커 텍스트 필터 → 0건이면 2) 키워드 검색
+  // =========================
+  async function runSearch(){
+    const q = ($('#search').value || '').trim();
+    // 1) 현재(애플브랜드) 마커 텍스트 필터
+    const localCount = filterMarkersByText(q);
+    clearSearchMarkers();
+    if(localCount > 0){
+      toast(`표시됨: ${localCount}곳`);
+      return;
+    }
+    // 2) 키워드 검색(일반)
+    if(!q){
+      toast('검색어를 입력하세요');
+      return;
+    }
+    toast('검색 중…');
+    const bounds = map.getBounds();
+    const results = await keywordSearchInBounds(q, bounds);
+    if(results.length === 0){
+      toast('검색 결과가 없습니다');
+      return;
+    }
+    // 일반 검색 마커 표시(클러스터에 넣지 않음)
+    const b = new kakao.maps.LatLngBounds();
+    searchMarkers = results.map(p=>{
+      const ll = new kakao.maps.LatLng(+p.y, +p.x);
+      b.extend(ll);
+      const m = new kakao.maps.Marker({ position: ll, title: p.place_name });
+      kakao.maps.event.addListener(m, 'click', ()=>{
+        infowindow.setContent(buildPopupHTML(p, null, false));
+        infowindow.open(map, m);
+      });
+      m.setMap(map);
+      return m;
+    });
+    map.setBounds(b);
+    toast(`검색 결과: ${results.length}곳 (일반)`);
   }
 
   // =========================
@@ -275,9 +347,15 @@
       }, ()=> toast('위치 접근이 거부되었어요'));
     });
 
-    $('#btn-scan').addEventListener('click', scanInView);
+    // “현재 화면 재스캔” = 검색 결과 지우고 애플브랜드 다시 스캔
+    $('#btn-scan').addEventListener('click', ()=>{
+      clearSearchMarkers();
+      $('#search').value = '';
+      scanInView();
+    });
 
     $('#btn-center').addEventListener('click', ()=>{
+      clearSearchMarkers();
       map.setCenter(new kakao.maps.LatLng(CFG.CENTER.lat, CFG.CENTER.lng));
       map.setLevel(5);
       scanInView();
@@ -292,9 +370,9 @@
       });
     });
 
-    // 검색 필터
-    $('#search-submit').addEventListener('click', ()=> filterMarkersByText($('#search').value));
-    $('#search').addEventListener('keydown', e=>{ if(e.key==='Enter') filterMarkersByText(e.target.value); });
+    // 검색
+    $('#search-submit').addEventListener('click', runSearch);
+    $('#search').addEventListener('keydown', e=>{ if(e.key==='Enter') runSearch(); });
 
     // 브랜드 토글 칩
     $$('.chipbar .chip').forEach(ch=>{
@@ -303,6 +381,7 @@
       input.addEventListener('change', ()=>{
         ch.classList.toggle('active', input.checked);
         if(input.checked) activeBrands.add(id); else activeBrands.delete(id);
+        clearSearchMarkers();
         scanInView();
       });
     });
