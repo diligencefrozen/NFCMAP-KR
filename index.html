@@ -14,7 +14,7 @@
   <div class="topbar" role="banner">
     <div class="brand">애플페이 가맹점 찾기</div>
     <div class="search-box" role="search">
-      <input id="search" placeholder="상호/브랜드 검색 (예: 밀알두레학교, 스타벅스, GS25)" aria-label="검색어" />
+      <input id="search" placeholder="상호/브랜드 검색 (예: 스타벅스, GS25)" aria-label="검색어" />
       <button id="search-submit" aria-label="검색">🔎</button>
     </div>
     <div class="actions">
@@ -71,6 +71,7 @@
   let allMarkers = [];     // 애플브랜드 마커(클러스터 대상)
   let searchMarkers = [];  // 일반 키워드 검색 마커(임시)
   let debounceTimer = null;
+  let isSearchMode = false; // 🔸검색모드(전국/화면내 키워드 결과 표시 중)면 자동 스캔 중지
   const activeBrands = new Set(APPLE_BRANDS.map(b=>b.id));
 
   // =========================
@@ -134,6 +135,7 @@
   function clearSearchMarkers(){
     searchMarkers.forEach(m => m.setMap(null));
     searchMarkers = [];
+    isSearchMode = false; // 🔸검색모드 해제
   }
 
   // 텍스트로 현재(애플브랜드) 마커 필터링
@@ -169,11 +171,11 @@
   // =========================
   function categorySearchOnce(groupCode, bounds, page=1){
     return new Promise((resolve,reject)=>{
-      ps.categorySearch(groupCode, (data, status, pagination)=>{
+      ps.categorySearch(groupCode, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
-          resolve({ data, pagination });
+          resolve({ data });
         }else if(status === kakao.maps.services.Status.ZERO_RESULT){
-          resolve({ data:[], pagination:null });
+          resolve({ data:[] });
         }else{
           reject(new Error('Places error: '+status));
         }
@@ -192,25 +194,25 @@
     return results;
   }
 
-  // 키워드 검색(일반)
-  function keywordSearchOnce(keyword, bounds, page=1){
+  // 🔸키워드 검색(옵션 객체로 bounds 유/무 지원)
+  function keywordSearchOnce(keyword, opts={}, page=1){
     return new Promise((resolve,reject)=>{
-      ps.keywordSearch(keyword, (data, status, pagination)=>{
+      ps.keywordSearch(keyword, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
-          resolve({ data, pagination });
+          resolve({ data });
         }else if(status === kakao.maps.services.Status.ZERO_RESULT){
-          resolve({ data:[], pagination:null });
+          resolve({ data:[] });
         }else{
           reject(new Error('Places error: '+status));
         }
-      }, { bounds, page });
+      }, { ...opts, page });
     });
   }
-  async function keywordSearchInBounds(keyword, bounds){
+  async function keywordSearchPaged(keyword, opts={}){
     const results = [];
     for(let page=1; page<=CFG.MAX_PAGES; page++){
       try{
-        const { data } = await keywordSearchOnce(keyword, bounds, page);
+        const { data } = await keywordSearchOnce(keyword, opts, page);
         results.push(...data);
         if(data.length < 15) break;
       }catch(e){ break; }
@@ -223,6 +225,7 @@
   // =========================
   async function scanInView(){
     if(!map) return;
+    if(isSearchMode) return; // 🔸검색모드일 땐 자동 스캔 멈춤
 
     // 너무 넓으면 API 45개 제한으로 누락 ↑
     if(map.getLevel() > 7){ toast('지도를 조금 더 확대해 주세요'); return; }
@@ -269,30 +272,49 @@
   }
 
   // =========================
-  // 검색 동작: 1) 현재 마커 텍스트 필터 → 0건이면 2) 키워드 검색
+  // 검색 동작
+  // 1) 현재 마커 텍스트 필터
+  // 2) 화면 내 키워드 검색
+  // 3) 전국 키워드 검색(폴백)
   // =========================
   async function runSearch(){
     const q = ($('#search').value || '').trim();
+
     // 1) 현재(애플브랜드) 마커 텍스트 필터
     const localCount = filterMarkersByText(q);
-    clearSearchMarkers();
+    clearSearchMarkers(); // 텍스트필터는 검색모드 아님
     if(localCount > 0){
       toast(`표시됨: ${localCount}곳`);
       return;
     }
-    // 2) 키워드 검색(일반)
+
     if(!q){
       toast('검색어를 입력하세요');
       return;
     }
-    toast('검색 중…');
+
+    // 2) 화면 내 키워드 검색
+    toast('검색 중… (화면 내)');
     const bounds = map.getBounds();
-    const results = await keywordSearchInBounds(q, bounds);
+    let results = await keywordSearchPaged(q, { bounds });
+
+    // 3) 0건이면 전국 검색
+    if(results.length === 0){
+      toast('검색 중… (전국)');
+      results = await keywordSearchPaged(q); // opts 생략 = 전국
+    }
+
+    // 결과 표시
     if(results.length === 0){
       toast('검색 결과가 없습니다');
       return;
     }
-    // 일반 검색 마커 표시(클러스터에 넣지 않음)
+
+    // 🔸검색모드 활성화 (자동 스캔 중지)
+    isSearchMode = true;
+
+    // 기존 검색 마커 정리 후 표시
+    clearSearchMarkers();
     const b = new kakao.maps.LatLngBounds();
     searchMarkers = results.map(p=>{
       const ll = new kakao.maps.LatLng(+p.y, +p.x);
@@ -306,7 +328,7 @@
       return m;
     });
     map.setBounds(b);
-    toast(`검색 결과: ${results.length}곳 (일반)`);
+    toast(`검색 결과: ${results.length}곳`);
   }
 
   // =========================
@@ -343,6 +365,7 @@
         const { latitude, longitude } = pos.coords;
         map.setCenter(new kakao.maps.LatLng(latitude, longitude));
         map.setLevel(4);
+        clearSearchMarkers(); // 검색모드 해제
         scanInView();
       }, ()=> toast('위치 접근이 거부되었어요'));
     });
@@ -381,7 +404,7 @@
       input.addEventListener('change', ()=>{
         ch.classList.toggle('active', input.checked);
         if(input.checked) activeBrands.add(id); else activeBrands.delete(id);
-        clearSearchMarkers();
+        clearSearchMarkers(); // 검색모드 해제
         scanInView();
       });
     });
