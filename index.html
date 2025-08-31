@@ -13,6 +13,9 @@
   <!-- Topbar -->
   <div class="topbar" role="banner">
     <div class="brand">애플페이 가맹점 찾기</div>
+      <span class="brand-text">애플페이 가맹점 찾기</span>
+      <span class="brand-emoji" aria-hidden="true">🗺️</span>
+    </div>
     <div class="search-box" role="search">
       <input id="search" placeholder="상호/브랜드 검색 (예: 스타벅스, GS25)" aria-label="검색어" />
       <button id="search-submit" aria-label="검색">🔎</button>
@@ -194,7 +197,7 @@
     return results;
   }
 
-  // 🔸키워드 검색(옵션 객체로 bounds 유/무 지원)
+  // 키워드 검색(옵션 객체로 bounds 유/무 지원)
   function keywordSearchOnce(keyword, opts={}, page=1){
     return new Promise((resolve,reject)=>{
       ps.keywordSearch(keyword, (data, status)=>{
@@ -310,7 +313,7 @@
       return;
     }
 
-    // 🔸검색모드 활성화 (자동 스캔 중지)
+    // 검색모드 활성화 (자동 스캔 중지)
     isSearchMode = true;
 
     // 기존 검색 마커 정리 후 표시
