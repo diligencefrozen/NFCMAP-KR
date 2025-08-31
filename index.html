@@ -245,6 +245,11 @@
   function updateMyLocation(lat, lng, accuracy){
     const ll = new kakao.maps.LatLng(lat, lng);
 
+    // 정확도 처리: 반경은 10~150m로 클램프, 200m보다 나쁘면 원 숨김
+    const acc = Number.isFinite(accuracy) ? accuracy : 30;
+    const radius = Math.min(Math.max(acc, 10), 150); // 10m ~ 150m
+    const showCircle = acc <= 200;
+
     // 파란 점
     if(!meOverlay){
       meOverlay = new kakao.maps.CustomOverlay({
@@ -258,24 +263,22 @@
       meOverlay.setPosition(ll);
     }
 
-    // 정확도 원
+    // 정확도 원 (정확도 나쁘면 숨김)
     if(!meCircle){
       meCircle = new kakao.maps.Circle({
-        map,
+        map: showCircle ? map : null,
         center: ll,
-        radius: Math.max(accuracy || 0, 10), // 최소 10m
+        radius,
         strokeWeight: 1,
         strokeColor: '#2563eb',
-        strokeOpacity: 0.4,
+        strokeOpacity: 0.35,
         strokeStyle: 'solid',
         fillColor: '#3b82f6',
-        fillOpacity: 0.12
+        fillOpacity: 0.10
       });
     }else{
-      meCircle.setOptions({
-        center: ll,
-        radius: Math.max(accuracy || 0, 10)
-      });
+      meCircle.setOptions({ center: ll, radius });
+      meCircle.setMap(showCircle ? map : null);
     }
   }
 
