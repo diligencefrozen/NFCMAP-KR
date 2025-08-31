@@ -61,6 +61,7 @@ body{
   border: 1px solid var(--bd);
   border-radius: 999px;
   background: var(--pill);
+  cursor: pointer;
 }
 
 .actions{
@@ -84,6 +85,7 @@ body{
   -webkit-overflow-scrolling: touch;
   padding: .2rem 0;
 }
+.chipbar::-webkit-scrollbar{ display:none; } /* 모바일에서 스크롤바 숨김 */
 
 .chip{
   display: inline-flex;
@@ -123,6 +125,28 @@ body{
 }
 .toast.show{ opacity:.92; }
 
+/* ───────────────────────────── 현재 위치 표시 ───────────────────────────── */
+/* 파란 점 */
+.me-dot{
+  position: relative;
+  width:14px; height:14px; border-radius:50%;
+  background:#2563eb; border:2px solid #fff;
+  box-shadow:0 0 0 2px rgba(37,99,235,.35);
+}
+.me-dot.pulse::after{
+  content:"";
+  position:absolute; left:50%; top:50%;
+  width:14px; height:14px; margin:-7px 0 0 -7px;
+  border-radius:50%;
+  background:rgba(37,99,235,.35);
+  animation:mePulse 1.8s ease-out infinite;
+}
+@keyframes mePulse{
+  0%{ transform:scale(.9); opacity:.9; }
+  70%{ transform:scale(2.2); opacity:0; }
+  100%{ transform:scale(2.2); opacity:0; }
+}
+
 /* ───────────────────────────── 모바일 최적화 ───────────────────────────── */
 @media (max-width: 600px){
   .topbar{
@@ -144,6 +168,9 @@ body{
   .search-box input{
     font-size: 14px;
     padding: .4rem .65rem;
+  }
+  .actions button{
+    padding:.38rem .5rem;      /* 모바일에서 버튼 살짝 더 컴팩트 */
   }
 
   /* topbar가 두 줄이 될 수 있으니 chipbar를 더 아래로 */
