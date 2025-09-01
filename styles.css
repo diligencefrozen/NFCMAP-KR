@@ -157,45 +157,46 @@ body{
     gap: .35rem;
     padding: .38rem .5rem;
   }
+
   .brand{
     font-size: 14px;
     order: 1;
   }
 
-  /* 모바일에서 actions 스와이프 */
-  .actions{
-    order: 2;
-    width: 100%;
-    overflow-x: auto;                    /* 가로 스와이프 */
-    -webkit-overflow-scrolling: touch;   /* iOS 스크롤 */
-    scrollbar-width: none;               /* Firefox */
-    margin-left: 0;
-    padding-bottom: .1rem;
-    position: relative;
-  }
-  .actions::-webkit-scrollbar{ display:none; }
-  /* 우측 그라데이션 힌트(선택) */
-  .actions::after{
-    content:"";
-    position:absolute; top:0; bottom:0; right:0; width:24px;
-    pointer-events:none;
-    background:linear-gradient(to left, rgba(255,255,255,.95), rgba(255,255,255,0));
-  }
-
+  /* 검색창을 먼저(2) */
   .search-box{
-    order: 3;
+    order: 2;
     width: 100%;
   }
   .search-box input{
     font-size: 14px;
     padding: .4rem .65rem;
   }
-  .actions button{
-    padding:.38rem .5rem;
+
+  /* 액션 버튼 줄을 그 아래(3) + 가로 스와이프 */
+  .actions{
+    order: 3;
+    width: 100%;
+    overflow-x: auto;                    /* 좌우 스와이프 */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-left: 0;
+    padding-bottom: .1rem;
+    flex-wrap: nowrap;                   /* 한 줄 유지 */
+    position: relative;
+  }
+  .actions::-webkit-scrollbar{ display:none; }
+  .actions button{ padding:.38rem .5rem; }
+  .actions::after{
+    content:"";                          /* 스와이프 힌트(그라데이션) */
+    position:absolute; top:0; bottom:0; right:0; width:24px;
+    pointer-events:none;
+    background:linear-gradient(to left, rgba(255,255,255,.95), rgba(255,255,255,0));
   }
 
+  /* topbar가 두 줄이 되니 chipbar를 더 아래로 */
   .chipbar{
-    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    top: calc(env(safe-area-inset-top, 0px) + 112px);
   }
 }
 
