@@ -80,7 +80,7 @@
     ISSUE_LABEL: 'add-merchant',
     CENTER: { lat: 37.345040, lng: 127.930825 }, // 원주종합버스터미널
     INIT_LEVEL: 5,       // 카카오 레벨(낮을수록 확대)
-    MAX_PAGES: 3,        // Places 한 번에 15개 → 최대 45개/브랜드/스캔
+    MAX_PAGES: 3,        // (기본값) Places 한 번에 15개 → 최대 45개/호출
     DEBOUNCE_MS: 600
   };
 
@@ -104,24 +104,40 @@
     { id:'gstation', label:'주유·충전', icon:'⛽', keywords:[ ] },
     { id:'movie', label:'영화·도서', icon:'🎬', keywords:[ ] },
     { id:'travel', label:'레저·여행', icon:'🧳', keywords:[ ] }
-    // { id:'cu', label:'편의점', icon:'🛒', keywords:['CU','씨유'] }
   ];
 
-  // 카테고리 코드(검색 효율 ↑) — 편의점 CS2, 카페 CE7
+  // 카테고리 코드(검색 효율 ↑)
   const BRAND_CATEGORY = {
-  cstore:   'CS2', // 편의점
-  cafe:     'CE7', // 카페
-  dstore:   'MT1', // 백화점,쇼핑
-  mart:     'MT1', // 마트,슈퍼
-  life:     'MT1', // 생활,가전
-  fashion:  'MT1', // 패션,뷰티
-  dessert:  'FD6', // 제과,디저트
-  food:     'FD6', // 외식
-  hotel:    'AD5', // 호텔,리조트
-  gstation: 'OL7', // 주유,충전
-  movie:    'CT1', // 영화,도서
-  travel:   'AT4'  // 레저,여행
-};
+    cstore:   'CS2', // 편의점
+    cafe:     'CE7', // 카페
+    dstore:   'MT1', // 대형마트/백화점/쇼핑몰 등
+    mart:     'MT1', // 마트·슈퍼
+    life:     'MT1', // 생활·가전 (MT1 하위가 많아 그룹코드 재사용)
+    fashion:  'MT1', // 패션·뷰티
+    dessert:  'FD6', // 음식점(제과/디저트 포함)
+    food:     'FD6', // 음식점
+    hotel:    'AD5', // 숙박
+    gstation: 'OL7', // 주유소
+    movie:    'CT1', // 문화시설
+    travel:   'AT4'  // 관광명소
+  };
+
+  // 그룹코드별 페이지 제한(폭주 방지)
+  const PAGE_LIMIT = { MT1: 2, FD6: 3, CE7: 3, CS2: 3, AD5: 2, OL7: 2, CT1: 2, AT4: 2, default: 2 };
+
+  // 간단 캐시(같은 영역/줌 중복 호출 방지)
+  const catCache = new Map();
+  const CACHE_TTL = 120 * 1000; // 2분
+  function boundsKey(code, bounds, level){
+    const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+    const f = n => Number(n).toFixed(3); // ~100m 타일
+    return `${code}:${f(sw.getLat())},${f(sw.getLng())}-${f(ne.getLat())},${f(ne.getLng())}:L${level}`;
+  }
+  function getCache(k){
+    const e = catCache.get(k);
+    return (e && now()-e.t < CACHE_TTL) ? e.v : null;
+  }
+  function setCache(k, v){ catCache.set(k, { v, t: now() }); }
 
   // =========================
   // State
@@ -144,7 +160,7 @@
   // =========================
   const $  = (s, r=document)=> r.querySelector(s);
   const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
-  const esc = (s='') => String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[m]));
+  const esc = (s='') => String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[m])) ;
 
   function toast(msg){
     const el = $('#toast'); if(!el) return;
@@ -200,9 +216,29 @@
   function brandOf(place){
     const name = (place.place_name||'');
     for(const b of APPLE_BRANDS){
-      if(b.keywords.some(k=> name.toLowerCase().includes(k.toLowerCase()))) return b;
+      if((b.keywords||[]).some(k=> name.toLowerCase().includes(String(k).toLowerCase()))) return b;
     }
     return null;
+  }
+
+  // 🔧 결과 → 브랜드 귀속 규칙
+  function pickBrandForPlace(place, activeIds){
+    const name = (place.place_name || '').toLowerCase();
+
+    // 1) 이름 키워드 매칭
+    const hits = APPLE_BRANDS.filter(b =>
+      activeIds.includes(b.id) &&
+      (b.keywords||[]).some(k => name.includes(String(k).toLowerCase()))
+    );
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1)   return hits[0]; // 다중 매칭이면 선언 순서 우선
+
+    // 2) 같은 그룹코드를 쓰는 활성 브랜드가 "단 하나"면 그쪽으로
+    const gc = place.category_group_code;
+    const sameGroupActive = APPLE_BRANDS.filter(b =>
+      activeIds.includes(b.id) && BRAND_CATEGORY[b.id] === gc
+    );
+    return sameGroupActive.length === 1 ? sameGroupActive[0] : null;
   }
 
   function buildPopupHTML(place, br, isApple=true){
@@ -281,12 +317,10 @@
   function updateMyLocation(lat, lng, accuracy){
     const ll = new kakao.maps.LatLng(lat, lng);
 
-    // 정확도 처리: 반경은 10~150m로 클램프, 200m보다 나쁘면 원 숨김
     const acc = Number.isFinite(accuracy) ? accuracy : 30;
     const radius = Math.min(Math.max(acc, 10), 150); // 10m ~ 150m
     const showCircle = acc <= 200;
 
-    // 파란 점
     if(!meOverlay){
       meOverlay = new kakao.maps.CustomOverlay({
         map,
@@ -299,7 +333,6 @@
       meOverlay.setPosition(ll);
     }
 
-    // 정확도 원 (정확도 나쁘면 숨김)
     if(!meCircle){
       meCircle = new kakao.maps.Circle({
         map: showCircle ? map : null,
@@ -353,9 +386,7 @@
   // =========================
   function categorySearchOnce(groupCode, bounds, page=1){
     return new Promise((resolve,reject)=>{
-      // 한도 잠금 중이면 네트워크 호출 생략(빈 결과 반환)
       if (isQuotaLocked()) return resolve({ data:[] });
-
       ps.categorySearch(groupCode, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
           recordSuccess();
@@ -370,15 +401,23 @@
       }, { bounds, page });
     });
   }
+
+  // 🔄 (교체) 카테고리 검색: 캐시 + 그룹별 페이지 제한
   async function searchCategoryInBounds(groupCode, bounds){
+    const key = boundsKey(groupCode, bounds, map.getLevel());
+    const cached = getCache(key);
+    if (cached) return cached;
+
+    const pages = PAGE_LIMIT[groupCode] || PAGE_LIMIT.default;
     const results = [];
-    for(let page=1; page<=CFG.MAX_PAGES; page++){
+    for(let page=1; page<=pages; page++){
       try{
         const { data } = await categorySearchOnce(groupCode, bounds, page);
         results.push(...data);
         if(data.length < 15) break;
       }catch(e){ break; }
     }
+    setCache(key, results);
     return results;
   }
 
@@ -414,14 +453,13 @@
   }
 
   // =========================
-  // 스캔: 화면(BBox) 안에서 카테고리 → 브랜드 필터
+  // 스캔: 고유 그룹코드만 한 번씩 호출 → 결과/브랜드 매핑
   // =========================
   async function scanInView(){
     if(!map) return;
     if(isSearchMode) return; // 검색모드일 땐 자동 스캔 멈춤
     if(map.getLevel() > 7){ toast('지도를 조금 더 확대해 주세요'); return; }
 
-    //  쿼터 잠금이면 네트워크 호출 대신 안내만
     if (isQuotaLocked()){
       showQuotaBanner();
       toast('API 제한 중: 이미 불러온 결과만 이용 가능');
@@ -430,31 +468,36 @@
 
     toast('가맹점 불러오는 중…');
     const bounds = map.getBounds();
-    const uniq = new Map();
 
-    const brandIds   = Array.from(activeBrands);
-    const brandSpecs = APPLE_BRANDS.filter(b=> brandIds.includes(b.id));
+    // 활성 브랜드 → 고유 그룹코드 목록
+    const activeIds = Array.from(activeBrands);
+    const uniqueCodes = [...new Set(activeIds
+      .map(id => BRAND_CATEGORY[id])
+      .filter(Boolean)
+    )];
 
-    for(const spec of brandSpecs){
-      const code = BRAND_CATEGORY[spec.id];
-      if(!code) continue;
-
+    // 그룹코드별로 "한 번씩만" 호출
+    const pooled = [];
+    for(const code of uniqueCodes){
       const list = await searchCategoryInBounds(code, bounds);
+      pooled.push(...list);
+    }
 
-      for(const p of list){
-        const lat = +p.y, lng = +p.x;
-        if(!isFinite(lat) || !isFinite(lng)) continue;
+    // 결과 → 브랜드 매핑 + dedupe
+    const uniq = new Map();
+    for(const p of pooled){
+      const lat = +p.y, lng = +p.x;
+      if(!isFinite(lat) || !isFinite(lng)) continue;
 
-        const contains = (typeof bounds.contains === 'function')
-          ? bounds.contains(new kakao.maps.LatLng(lat, lng))
-          : (typeof bounds.contain === 'function' ? bounds.contain(new kakao.maps.LatLng(lat, lng)) : true);
-        if(!contains) continue;
+      const contains = (typeof bounds.contains === 'function')
+        ? bounds.contains(new kakao.maps.LatLng(lat, lng))
+        : (typeof bounds.contain === 'function' ? bounds.contain(new kakao.maps.LatLng(lat, lng)) : true);
+      if(!contains) continue;
 
-        const br = brandOf(p);
-        if(!br) continue;
+      const br = pickBrandForPlace(p, activeIds);
+      if(!br) continue;
 
-        if(!uniq.has(p.id)) uniq.set(p.id, { place: p, br });
-      }
+      if(!uniq.has(p.id)) uniq.set(p.id, { place: p, br });
     }
 
     clearSearchMarkers(); // 검색 모드 잔재 제거
