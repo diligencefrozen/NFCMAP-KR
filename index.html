@@ -44,18 +44,18 @@
 
   <!-- 브랜드 필터(애플페이 지원 가정된 브랜드만 노출) -->
   <div class="chipbar" role="group" aria-label="브랜드 필터">
-    <label class="chip active" data-brand="cstore"><input type="checkbox" checked>🛒 편의점</label>
-    <label class="chip active" data-brand="cafe"><input type="checkbox" checked>☕ 커피</label>
-    <label class="chip active" data-brand="dstore"><input type="checkbox" checked>백화점,쇼핑</label>
-    <label class="chip active" data-brand="mart"><input type="checkbox" checked>마트,슈퍼</label>
-    <label class="chip active" data-brand="life"><input type="checkbox" checked>생활,가전</label>
-    <label class="chip active" data-brand="fashion"><input type="checkbox" checked>패션,뷰티</label>
-    <label class="chip active" data-brand="dessert"><input type="checkbox" checked>제과,디저트</label>
-    <label class="chip active" data-brand="food"><input type="checkbox" checked>외식</label>
-    <label class="chip active" data-brand="hotel"><input type="checkbox" checked>호텔,리조트</label>
-    <label class="chip active" data-brand="gstation"><input type="checkbox" checked>주유,충전</label>
-    <label class="chip active" data-brand="movie"><input type="checkbox" checked>영화,도서</label>
-    <label class="chip active" data-brand="travel"><input type="checkbox" checked>레저,여행</label>
+    <label class="chip active" data-brand="cstore"><input type="checkbox" checked>🏪 편의점</label>
+    <label class="chip active" data-brand="cafe"><input type="checkbox" checked>☕ 카페</label>
+    <label class="chip active" data-brand="dstore"><input type="checkbox" checked>🛍️ 백화점·쇼핑</label>
+    <label class="chip active" data-brand="mart"><input type="checkbox" checked>🛒 마트·슈퍼</label>
+    <label class="chip active" data-brand="life"><input type="checkbox" checked>🔌 생활·가전</label>
+    <label class="chip active" data-brand="fashion"><input type="checkbox" checked>👗 패션·뷰티</label>
+    <label class="chip active" data-brand="dessert"><input type="checkbox" checked>🍰 제과·디저트</label>
+    <label class="chip active" data-brand="food"><input type="checkbox" checked>🍽️ 외식</label>
+    <label class="chip active" data-brand="hotel"><input type="checkbox" checked>🏨 호텔·리조트</label>
+    <label class="chip active" data-brand="gstation"><input type="checkbox" checked>⛽ 주유·충전</label>
+    <label class="chip active" data-brand="movie"><input type="checkbox" checked>🎬 영화·도서</label>
+    <label class="chip active" data-brand="travel"><input type="checkbox" checked>🧳 레저·여행</label>
   </div>
 
   <!-- 지도 -->
@@ -86,11 +86,21 @@
 
   // “애플페이 지원”으로 간주하여 표시할 브랜드만 정의
   const APPLE_BRANDS = [
-    { id:'cstore', label:'편의점', icon:'🛒', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'cstore', label:'편의점', icon:'🏪', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
     { id:'cafe', label:'카페',   icon:'☕', keywords:['스타벅스','투썸플레이스','빽다방','메가커피','이디야커피','더벤티','할리스','공차',
                                                    '커피빈','엔제리너스','폴바셋','파스쿠찌','블루보틀','탐앤탐스','아마스빈','커피베이',
                                                    '테라로사','잠바주스','커피앳웍스','카페스토리웨이','아티제','댄싱컵','팀홀튼',
-                                                   '컴포즈커피','카페꼼마','하이오커피','카페봄봄'] }
+                                                   '컴포즈커피','카페꼼마','하이오커피','카페봄봄'] },
+    { id:'dstore', label:'백화점·쇼핑', icon:'🛍️', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'mart', label:'마트·슈퍼', icon:'🛒', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'life', label:'생활·가전', icon:'🔌', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'fashion', label:'패션·뷰티', icon:'👗', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'dessert', label:'제과·디저트', icon:'🍰', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'food', label:'외식', icon:'🍽️', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'hotel', label:'호텔·리조트', icon:'🏨', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'gstation', label:'주유·충전', icon:'⛽', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'movie', label:'영화·도서', icon:'🎬', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'travel', label:'레저·여행', icon:'🧳', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] }
     // { id:'cu', label:'편의점', icon:'🛒', keywords:['CU','씨유'] }
   ];
 
