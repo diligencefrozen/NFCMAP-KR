@@ -80,8 +80,14 @@
     ISSUE_LABEL: 'add-merchant',
     CENTER: { lat: 37.345040, lng: 127.930825 }, // 원주종합버스터미널
     INIT_LEVEL: 5,       // 카카오 레벨(낮을수록 확대)
-    MAX_PAGES: 3,        // Places 한 번에 15개 → 최대 45개/스캔
-    DEBOUNCE_MS: 600
+    MAX_PAGES: 3,        // 기본 최대 페이지
+    DEBOUNCE_MS: 600,
+
+    // ↓↓↓ API 과호출 방지(신규)
+    API_INTERVAL_MS: 350,                 // Kakao 호출 최소 간격(QPS≈3)
+    CACHE_TTL_MS: 10 * 60 * 1000,         // 같은 중심/레벨/그룹코드 캐시 10분
+    MOVE_FRACTION: 0.35,                  // 화면폭의 35% 이상 움직여야 재스캔
+    PAGE_BY_LEVEL: { 1:3, 2:3, 3:3, 4:2, 5:2, 6:1, 7:1 } // 줌별 페이지
   };
 
   // “애플페이 지원”으로 간주하여 표시할 브랜드만 정의
@@ -95,17 +101,17 @@
     { id:'dstore', label:'백화점,쇼핑', icon:'🛍️', keywords:['롯데백화점','롯데아울렛','롯데몰','롯데면세점','현대백화점',
                                                        '현대아울렛','현대백화점면세점','AK플라자','파르나스몰','아이파크몰',
                                                        '앨리웨이','신라면세점','JDC면세점','스타필드','갤러리아','신세계면세점'] },
-    { id:'mart', label:'마트,슈퍼', icon:'🛒', keywords:['코스트코', '롯데마트','롯데슈퍼','홈플러스마트','홈플러스익스프레스',
+    { id:'mart', label:'마트,슈퍼', icon:'🛒', keywords:['코스트코','롯데마트','롯데슈퍼','홈플러스마트','홈플러스익스프레스',
                                                     'GS더프레시','농협하나로마트','초록마을','식자재왕도매마트','고향뜨락','이마트에브리데이'] },
-    { id:'life', label:'생활,가전', icon:'🔌', keywords:['이케아', '다이소', '롯데하이마트', 'LG전자베스트샵', '프리스비', 
-                                                    '에이샵', '아이스토어', '아트박스', '오피스디포', '토이저러스', '프린트카페', '에이스침대'] },
-    { id:'fashion', label:'패션,뷰티', icon:'👗', keywords:['올리브영', '무신사스탠다드', '이니스프리', 'ABC마트', '엠플레이그라운드'] },
-    { id:'dessert', label:'제과,디저트', icon:'🍰', keywords:['파리바게뜨', '파리크라상', '뚜레쥬르', '배스킨라빈스', '던킨', 
-                                                        '크리스피크림도넛', '디저트39', '트리핀', '빚은', '복호두', '쇼콜라팔레트'] },
-    { id:'food', label:'외식', icon:'🍽️', keywords:['롯데리아', '맥도날드', 'KFC', '쉐이크쉑', '라그릴리아', '피그인더가든', '김가네', '봉추찜닭', 
-                                                 '스트릿', '퀸즈파크', '라뜰리에', '에그슬럿', '시티델리', '리나스', 'VIPS', '제일제면소', 
-                                                 '더플레이스', '더스테이크하우스', '더테이스터블', '파파이스', '쿠차라', '아웃백스테이크하우스', 
-                                                 '플레이팅', '이삭토스트', '한솥도시락', '파이브가이즈'] }, <!-- '베라' 제거, '맥도날드' 중복 정리 -->
+    { id:'life', label:'생활,가전', icon:'🔌', keywords:['이케아','다이소','롯데하이마트','LG전자베스트샵','프리스비',
+                                                    '에이샵','아이스토어','아트박스','오피스디포','토이저러스','프린트카페','에이스침대'] },
+    { id:'fashion', label:'패션,뷰티', icon:'👗', keywords:['올리브영','무신사스탠다드','이니스프리','ABC마트','엠플레이그라운드'] },
+    { id:'dessert', label:'제과,디저트', icon:'🍰', keywords:['파리바게뜨','파리크라상','뚜레쥬르','배스킨라빈스','던킨',
+                                                        '크리스피크림도넛','디저트39','트리핀','빚은','복호두','쇼콜라팔레트'] },
+    { id:'food', label:'외식', icon:'🍽️', keywords:['롯데리아','맥도날드','KFC','쉐이크쉑','라그릴리아','피그인더가든','김가네','봉추찜닭',
+                                                 '스트릿','퀸즈파크','라뜰리에','에그슬럿','시티델리','리나스','VIPS','제일제면소',
+                                                 '더플레이스','더스테이크하우스','더테이스터블','파파이스','쿠차라','아웃백스테이크하우스',
+                                                 '플레이팅','이삭토스트','한솥도시락','파이브가이즈'] },
     { id:'hotel', label:'호텔,리조트', icon:'🏨', keywords:['해비치호텔앤드리조트'] },
     { id:'gstation', label:'주유,충전', icon:'⛽', keywords:['GS칼텍스'] },
     { id:'movie', label:'영화,도서', icon:'🎬', keywords:['롯데시네마'] },
@@ -146,6 +152,67 @@
   let geoWatchId = null;    // geolocation watch id
   let centerOnFirstFix = false; // geoloc 버튼 눌렀을 때 1회 자동 센터링
 
+  // ----- QPS limiter (API 과호출 방지) -----
+  const _q = { queue: [], busy: false, lastAt: 0 };
+  function enqueueKakao(maker){
+    return new Promise((resolve, reject)=>{
+      _q.queue.push({ maker, resolve, reject });
+      _pump();
+    });
+  }
+  function _pump(){
+    if (_q.busy || !_q.queue.length) return;
+    const wait = Math.max(0, CFG.API_INTERVAL_MS - (Date.now() - _q.lastAt));
+    _q.busy = true;
+    setTimeout(()=>{
+      const job = _q.queue.shift();
+      job.maker()
+        .then(res => job.resolve(res))
+        .catch(err => job.reject(err))
+        .finally(()=>{
+          _q.lastAt = Date.now();
+          _q.busy = false;
+          _pump();
+        });
+    }, wait);
+  }
+
+  // ----- simple cache (center+level+groupCode key) -----
+  const CACHE = new Map(); // key -> { ts, places: [] }
+  function _cacheKey(groupCode){
+    const c = map.getCenter(), lvl = map.getLevel();
+    return `${groupCode}|${lvl}|${c.getLat().toFixed(2)},${c.getLng().toFixed(2)}`;
+  }
+  function cacheLoad(groupCode){
+    const k = _cacheKey(groupCode);
+    const v = CACHE.get(k);
+    if (v && (Date.now() - v.ts) < CFG.CACHE_TTL_MS) return v.places;
+    return null;
+  }
+  function cacheSave(groupCode, places){
+    CACHE.set(_cacheKey(groupCode), { ts: Date.now(), places });
+  }
+  function pagesForLevel(){
+    const l = map.getLevel();
+    return CFG.PAGE_BY_LEVEL[l] ?? 1;
+  }
+
+  // ----- 이동 임계치 게이트 -----
+  let lastScanState = null; // { lat, lng, level }
+  function movedEnough(){
+    if (!lastScanState) return true;
+    const b = map.getBounds();
+    const c = map.getCenter();
+    const level = map.getLevel();
+    const latSpan = b.getNorthEast().getLat() - b.getSouthWest().getLat();
+    const lngSpan = b.getNorthEast().getLng() - b.getSouthWest().getLng();
+    const dLat = Math.abs(c.getLat() - lastScanState.lat);
+    const dLng = Math.abs(c.getLng() - lastScanState.lng);
+    return level !== lastScanState.level ||
+           dLat > latSpan * CFG.MOVE_FRACTION ||
+           dLng > lngSpan * CFG.MOVE_FRACTION;
+  }
+
   // =========================
   // Utils
   // =========================
@@ -167,7 +234,7 @@
     clearTimeout(el._t); el._t = setTimeout(()=> el.classList.remove('show'), 1800);
   }
 
-  // Quota guard (연속 오류 → 10분 쿨다운) — 인위적 “페이지 제한”은 제거, 단일 카테고리 정책으로 폭주 방지
+  // Quota guard (연속 오류 → 10분 쿨다운)
   const QUOTA = {
     tripped:false, until:0, recentErrors:[],
     windowMs: 30*1000, tripAfter: 3, coolDownMs: 10*60*1000
@@ -189,7 +256,7 @@
     if(!b) return null;
     const nameN = norm(place.place_name || '');
     const hit = (b.keywords || []).some(k => nameN.includes(norm(k)));
-    return hit ? b : null;  // ← 그룹코드 폴백 제거!
+    return hit ? b : null;  // 그룹코드 폴백 제거 -> 등록 키워드만 통과
   }
 
   function buildPopupHTML(place, br, isApple=true){
@@ -248,7 +315,7 @@
   function openIssueWith(lat, lng){
     const base = `https://github.com/${encodeURIComponent(CFG.OWNER)}/${encodeURIComponent(CFG.REPO)}/issues/new`;
     const params = new URLSearchParams();
-    params.set('title', '[Add] Apple Pay Merchant']);
+    params.set('title', '[Add] Apple Pay Merchant'); // 오탈자 수정
     params.set('labels', CFG.ISSUE_LABEL);
     const body = [
       '**상호명**\n',
@@ -329,56 +396,55 @@
   }
 
   // =========================
-  // Kakao Places helpers
+  // Kakao Places helpers (리미터 적용)
   // =========================
   function categorySearchOnce(groupCode, bounds, page=1){
-    return new Promise((resolve,reject)=>{
+    return enqueueKakao(()=> new Promise((resolve,reject)=>{
       if (isQuotaLocked()) return resolve({ data:[] });
       ps.categorySearch(groupCode, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
-          recordSuccess();
-          resolve({ data });
+          recordSuccess(); resolve({ data });
         }else if(status === kakao.maps.services.Status.ZERO_RESULT){
-          recordSuccess();
-          resolve({ data:[] });
+          recordSuccess(); resolve({ data:[] });
         }else{
           recordError(); showQuotaBanner();
           reject(new Error('Places error: '+status));
         }
       }, { bounds, page });
-    });
+    }));
   }
 
-  // (단일 카테고리 대상) 카테고리 검색: MAX_PAGES까지
   async function searchCategoryInBounds(groupCode, bounds){
+    const cached = cacheLoad(groupCode);
+    if (cached) return cached;
+
     const results = [];
-    for(let page=1; page<=CFG.MAX_PAGES; page++){
+    const maxPages = pagesForLevel();
+    for(let page=1; page<=maxPages; page++){
       try{
         const { data } = await categorySearchOnce(groupCode, bounds, page);
         results.push(...data);
         if(data.length < 15) break;
       }catch(e){ break; }
     }
+    cacheSave(groupCode, results);
     return results;
   }
 
-  // 키워드 검색(옵션 객체로 bounds 유/무 지원)
   function keywordSearchOnce(keyword, opts={}, page=1){
-    return new Promise((resolve,reject)=>{
+    return enqueueKakao(()=> new Promise((resolve,reject)=>{
       if (isQuotaLocked()) return resolve({ data:[] });
       ps.keywordSearch(keyword, (data, status)=>{
         if(status === kakao.maps.services.Status.OK){
-          recordSuccess();
-          resolve({ data });
+          recordSuccess(); resolve({ data });
         }else if(status === kakao.maps.services.Status.ZERO_RESULT){
-          recordSuccess();
-          resolve({ data:[] });
+          recordSuccess(); resolve({ data:[] });
         }else{
           recordError(); showQuotaBanner();
           reject(new Error('Places error: '+status));
         }
       }, { ...opts, page });
-    });
+    }));
   }
   async function keywordSearchPaged(keyword, opts={}){
     const results = [];
@@ -402,6 +468,7 @@
     if(isSearchMode) return;
     if(map.getLevel() > 7){ toast('지도를 조금 더 확대해 주세요'); return; }
     if (isQuotaLocked()){ showQuotaBanner(); toast('API 제한 중: 이미 불러온 결과만 이용 가능'); return; }
+    if (!movedEnough()) return; // 이동 임계치 미달 시 스킵
 
     const activeId = getActiveBrandId();
     if(!activeId){ toast('카테고리를 선택하세요'); return; }
@@ -433,12 +500,19 @@
     const rows = Array.from(uniq.values());
     allMarkers = rows.map(({ place, br }) => createMarker(place, br));
     setMarkersToCluster(allMarkers);
+
+    // 마지막 스캔 상태 저장 (이동 임계 계산용)
+    const cc = map.getCenter();
+    lastScanState = { lat: cc.getLat(), lng: cc.getLng(), level: map.getLevel() };
+
     toast(`표시됨: ${allMarkers.length}곳`);
   }
 
   function scheduleScan(){
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(scanInView, CFG.DEBOUNCE_MS);
+    debounceTimer = setTimeout(()=>{
+      if (movedEnough()) scanInView();
+    }, CFG.DEBOUNCE_MS);
   }
 
   // =========================
