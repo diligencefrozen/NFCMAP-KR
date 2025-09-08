@@ -6,15 +6,13 @@
   <title>애플페이 가맹점 찾기</title>
   <link rel="stylesheet" href="styles.css" />
   <meta name="color-scheme" content="light" />
-  <!-- Kakao Maps JS (services + clusterer) - autoload=false 로드 후 kakao.maps.load(init) -->
+  <!-- Kakao Maps JS -->
   <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer&autoload=false"></script>
 
   <style>
     .quota-banner{position:fixed;z-index:601;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px)+110px);background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:.6rem;padding:.5rem .75rem;box-shadow:0 2px 10px rgba(0,0,0,.06);display:flex;align-items:center;gap:.6rem}
     .quota-banner button{border:1px solid #fecaca;background:#fff;border-radius:999px;padding:.25rem .6rem;cursor:pointer}
     @media (max-width:600px){.quota-banner{top:calc(env(safe-area-inset-top,0px)+128px);left:8px;right:8px;transform:none;justify-content:space-between}}
-
-    /* 지도 높이 기본값(외부 CSS 미로딩 대비) */
     #map{min-height:70vh}
   </style>
 </head>
@@ -73,20 +71,26 @@
     CENTER: { lat: 37.345040, lng: 127.930825 },
     INIT_LEVEL: 5,
     MAX_PAGES: 3,
-    DEBOUNCE_MS: 600,
+    DEBOUNCE_MS: 250,
 
-    // API 과호출 방지
-    API_INTERVAL_MS: 350,
-    CACHE_TTL_MS: 10 * 60 * 1000,
+    // API 제어
+    API_INTERVAL_MS: 280,         // 시작 간격
+    MAX_CONCURRENCY: 2,           // 동시에 2개까지만
+    CACHE_TTL_MS: 6 * 60 * 1000,  // 6분 캐시
     MOVE_FRACTION: 0.35,
-    PAGE_BY_LEVEL: { 1:3, 2:3, 3:3, 4:2, 5:2, 6:1, 7:1 },
+    PAGE_BY_LEVEL: { 1:2, 2:2, 3:2, 4:2, 5:1, 6:1, 7:1 },
 
-    // === 핵심: 카테고리→브랜드키워드 모드 전환 ===
+    // 빠른 1차 스캔(카테고리 1페이지만)
+    FAST_FIRST: true,
+    FAST_PAGES: 1,
+    MIN_QUICK_RESULTS: 8,         // 이 이상이면 키워드스캔 생략
+
+    // 브랜드 키워드 모드(보충용)
     USE_BRAND_KEYWORD_MODE: true,
-    MAX_KEYWORDS_PER_SCAN: 12
+    MAX_KEYWORDS_PER_SCAN: 8
   };
 
-  // 등록된 브랜드만 (표기 변형 일부 보강)
+  // 등록된 브랜드(표기 변형 일부 보강)
   const APPLE_BRANDS = [
     { id:'cstore', label:'편의점', icon:'🏪', keywords:['GS25','GS 25','지에스25','CU','씨유','세븐일레븐','Seven Eleven','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
     { id:'cafe', label:'카페', icon:'☕', keywords:['스타벅스','Starbucks','투썸플레이스','빽다방','메가커피','MEGA COFFEE','이디야커피','더벤티','할리스','공차','커피빈','엔제리너스','폴바셋','파스쿠찌','블루보틀','탐앤탐스','아마스빈','커피베이','테라로사','잠바주스','커피앳웍스','카페스토리웨이','아티제','댄싱컵','팀홀튼','컴포즈커피','카페꼼마','하이오커피','카페봄봄'] },
@@ -102,7 +106,7 @@
     { id:'travel', label:'레저,여행', icon:'🧳', keywords:['서울랜드'] }
   ];
 
-  // (참고) 카카오 그룹코드 — 브랜드 키워드 모드가 기본이라도 남겨둡니다.
+  // 카테고리 코드
   const BRAND_CATEGORY = {
     cstore:'CS2', cafe:'CE7', dstore:'MT1', mart:'MT1', life:'MT1',
     fashion:'MT1', dessert:'FD6', food:'FD6', hotel:'AD5',
@@ -120,8 +124,8 @@
   const activeBrands = new Set(['cstore']);
   let meOverlay = null, meCircle = null, geoWatchId = null, centerOnFirstFix = false;
 
-  // ----- QPS limiter -----
-  const _q = { queue: [], busy: false, lastAt: 0 };
+  // ----- 요청 스케줄러 (간격 + 소량 병렬) -----
+  const _q = { queue: [], inflight: 0, lastAt: 0 };
   function enqueueKakao(maker){
     return new Promise((resolve, reject)=>{
       _q.queue.push({ maker, resolve, reject });
@@ -129,17 +133,24 @@
     });
   }
   function _pump(){
-    if (_q.busy || !_q.queue.length) return;
+    if (!_q.queue.length) return;
+    if (_q.inflight >= CFG.MAX_CONCURRENCY) return;
+
     const wait = Math.max(0, CFG.API_INTERVAL_MS - (Date.now() - _q.lastAt));
-    _q.busy = true;
     setTimeout(()=>{
+      if (!_q.queue.length) return;
       const job = _q.queue.shift();
-      job.maker().then(job.resolve).catch(job.reject).finally(()=>{
-        _q.lastAt = Date.now();
-        _q.busy = false;
-        _pump();
-      });
+      _q.inflight++; _q.lastAt = Date.now();
+      job.maker()
+        .then(job.resolve)
+        .catch(job.reject)
+        .finally(()=>{ _q.inflight--; _pump(); });
     }, wait);
+
+    // 여유가 있으면 다음 것도 예약
+    if (_q.inflight + 1 < CFG.MAX_CONCURRENCY) {
+      setTimeout(_pump, wait + 5);
+    }
   }
 
   // ----- cache (center+level+tag) -----
@@ -148,10 +159,7 @@
     const c = map.getCenter(), lvl = map.getLevel();
     return `${tag}|${lvl}|${c.getLat().toFixed(2)},${c.getLng().toFixed(2)}`;
   }
-  function cacheLoad(tag){
-    const v = CACHE.get(_cacheKey(tag));
-    return v && (Date.now()-v.ts) < CFG.CACHE_TTL_MS ? v.places : null;
-  }
+  function cacheLoad(tag){ const v = CACHE.get(_cacheKey(tag)); return v && (Date.now()-v.ts) < CFG.CACHE_TTL_MS ? v.places : null; }
   function cacheSave(tag, places){ CACHE.set(_cacheKey(tag), { ts: Date.now(), places }); }
   function pagesForLevel(){ return CFG.PAGE_BY_LEVEL[map.getLevel()] ?? 1; }
 
@@ -175,10 +183,10 @@
   const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
   const esc = (s='') => String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[m])) ;
   function norm(s=''){ return String(s).toLowerCase().replace(/\s|·|ㆍ|・|\.|,|\/|-/g,'').replace(/점|지점|센터|몰|타워|역|본점|지하/g,''); }
-  function toast(msg){ const el=$('#toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),1800); }
+  function toast(msg){ const el=$('#toast'); if(!el) return; el.textContent=msg; el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),1200); }
 
   // Quota guard
-  const QUOTA = { tripped:false, until:0, recentErrors:[], windowMs:30e3, tripAfter:3, coolDownMs:600e3 };
+  const QUOTA = { tripped:false, until:0, recentErrors:[], windowMs:30000, tripAfter:3, coolDownMs:600000 };
   const now = ()=>Date.now();
   const purgeOldErrors = ()=>{ const edge=now()-QUOTA.windowMs; QUOTA.recentErrors=QUOTA.recentErrors.filter(t=>t>=edge); };
   const recordSuccess = ()=>{ QUOTA.recentErrors=[]; if(QUOTA.tripped && now()>=QUOTA.until) clearQuotaLock(); };
@@ -190,109 +198,7 @@
   function hideQuotaBanner(){ const el=$('#quota-banner'); if(el) el.hidden=true; }
   document.addEventListener('click', e=>{ if(e.target && e.target.id==='quota-retry'){ clearQuotaLock(); scanInView(true); } });
 
-  // 브랜드 판정(카테고리 모드에서만 사용)
-  function pickBrandForPlace(place, activeId){
-    const b = APPLE_BRANDS.find(x=>x.id===activeId);
-    if(!b) return null;
-    const nameN = norm(place.place_name||'');
-    const hit = (b.keywords||[]).some(k => nameN.includes(norm(k)));
-    return hit ? b : null;
-  }
-
-  function buildPopupHTML(place, br, isApple=true){
-    const addr=place.road_address_name||place.address_name||'';
-    const tel=place.phone||''; const url=place.place_url||'';
-    const parts=[];
-    parts.push(`<div class="title">${esc(place.place_name||'상호명')}</div>`);
-    if(addr) parts.push(`<div class="row">주소: ${esc(addr)}</div>`);
-    if(tel) parts.push(`<div class="row">전화: <a href="tel:${esc(tel)}">${esc(tel)}</a></div>`);
-    parts.push(`<div class="row">애플페이: <b>${isApple?'지원':'미확인(일반 검색)'}</b></div>`);
-    if(br) parts.push(`<div class="row">분류: ${esc(br.label)}</div>`);
-    if(url) parts.push(`<div class="row"><a href="${esc(url)}" target="_blank" rel="noopener">상세 보기</a></div>`);
-    return `<div class="popup">${parts.join('')}</div>`;
-  }
-
-  function createMarker(place, br){
-    const pos=new kakao.maps.LatLng(+place.y,+place.x);
-    const marker=new kakao.maps.Marker({ position: pos, title: place.place_name });
-    kakao.maps.event.addListener(marker,'click',()=>{
-      infowindow.setContent(buildPopupHTML(place, br, true));
-      infowindow.open(map, marker);
-    });
-    marker.__brand=br; marker.__place=place;
-    return marker;
-  }
-
-  function setMarkersToCluster(markers){
-    if (clusterer && typeof clusterer.clear==='function') clusterer.clear();
-    else if (clusterer){ clusterer.setMap(null); clusterer=new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:6 }); }
-    clusterer.addMarkers(markers);
-  }
-
-  function clearSearchMarkers(){ searchMarkers.forEach(m=>m.setMap(null)); searchMarkers=[]; isSearchMode=false; }
-
-  function filterMarkersByText(q){
-    const qq=(q||'').trim().toLowerCase();
-    const filtered=!qq?allMarkers:allMarkers.filter(m=>{
-      const p=m.__place; const hay=`${p.place_name||''} ${p.road_address_name||''} ${p.address_name||''} ${p.phone||''}`.toLowerCase();
-      return hay.includes(qq);
-    });
-    setMarkersToCluster(filtered);
-    return filtered.length;
-  }
-
-  function openIssueWith(lat,lng){
-    const base=`https://github.com/${encodeURIComponent(CFG.OWNER)}/${encodeURIComponent(CFG.REPO)}/issues/new`;
-    const params=new URLSearchParams();
-    params.set('title','[Add] Apple Pay Merchant');
-    params.set('labels',CFG.ISSUE_LABEL);
-    const body=[
-      '**상호명**\n',
-      '**카테고리**\nconv / cafe / resto / mart / bakery / pharmacy / transport / other\n',
-      '**위도/경도**\n', `lat: ${lat}\nlon: ${lng}\n`,
-      '**애플페이** (해당에 체크)\n','- [ ] Contactless\n- [ ] In-App\n- [ ] Express\n',
-      '**비고/출처(선택)**\n'
-    ].join('\n');
-    params.set('body',body);
-    window.open(`${base}?${params.toString()}`,'_blank');
-  }
-
-  // =========================
-  // 내 위치
-  // =========================
-  function updateMyLocation(lat,lng,accuracy){
-    const ll=new kakao.maps.LatLng(lat,lng);
-    const acc=Number.isFinite(accuracy)?accuracy:30;
-    const radius=Math.min(Math.max(acc,10),150);
-    const showCircle=acc<=200;
-    if(!meOverlay){
-      meOverlay=new kakao.maps.CustomOverlay({ map, position: ll, yAnchor: .5, zIndex:3, content:'<div class="me-dot pulse"></div>' });
-    }else{ meOverlay.setPosition(ll); }
-    if(!meCircle){
-      meCircle=new kakao.maps.Circle({ map: showCircle?map:null, center: ll, radius, strokeWeight:1, strokeColor:'#2563eb', strokeOpacity:.35, strokeStyle:'solid', fillColor:'#3b82f6', fillOpacity:.10 });
-    }else{
-      meCircle.setOptions({ center: ll, radius }); meCircle.setMap(showCircle?map:null);
-    }
-  }
-
-  function stopGeolocWatch(){ if(geoWatchId!=null){ navigator.geolocation.clearWatch(geoWatchId); geoWatchId=null; } }
-  function startGeolocWatch(centerOnce=false){
-    if(!navigator.geolocation){ toast('이 브라우저는 위치 기능을 지원하지 않아요'); return; }
-    centerOnFirstFix=!!centerOnce; stopGeolocWatch();
-    geoWatchId=navigator.geolocation.watchPosition(pos=>{
-      const { latitude:lat, longitude:lng, accuracy }=pos.coords;
-      updateMyLocation(lat,lng,accuracy);
-      if(centerOnFirstFix){
-        centerOnFirstFix=false;
-        map.setCenter(new kakao.maps.LatLng(lat,lng)); map.setLevel(4);
-        clearSearchMarkers(); scanInView(true);
-      }
-    }, ()=>{ toast('현재 위치를 가져오지 못했어요'); }, { enableHighAccuracy:true, timeout:15000, maximumAge:10000 });
-  }
-
-  // =========================
-  // Kakao Places helpers (리미터 적용)
-  // =========================
+  // === Kakao Places helpers ===
   function categorySearchOnce(groupCode,bounds,page=1){
     return enqueueKakao(()=> new Promise((resolve,reject)=>{
       if (isQuotaLocked()) return resolve({ data:[] });
@@ -303,18 +209,6 @@
       }, { bounds, page });
     }));
   }
-
-  async function searchCategoryInBounds(groupCode,bounds){
-    const tag='cat:'+groupCode;
-    const cached=cacheLoad(tag); if(cached) return cached;
-    const results=[]; const maxPages=pagesForLevel();
-    for(let page=1; page<=maxPages; page++){
-      try{ const {data}=await categorySearchOnce(groupCode,bounds,page); results.push(...data); if(data.length<15) break; }
-      catch(e){ break; }
-    }
-    cacheSave(tag,results); return results;
-  }
-
   function keywordSearchOnce(keyword,opts={},page=1){
     return enqueueKakao(()=> new Promise((resolve,reject)=>{
       if (isQuotaLocked()) return resolve({ data:[] });
@@ -326,14 +220,40 @@
     }));
   }
 
-  // === 브랜드 키워드로만 스캔 ===
+  // --- 빠른 1차: 카테고리 1페이지 ---
+  async function searchCategoryFast(activeId, bounds){
+    const code = BRAND_CATEGORY[activeId]; if(!code) return [];
+    const tag='fast:'+code;
+    const cached=cacheLoad(tag); if(cached) return cached;
+    const results=[];
+    const pages = CFG.FAST_PAGES;
+    for(let p=1; p<=pages; p++){
+      try{ const {data}=await categorySearchOnce(code,bounds,p); results.push(...data); if(data.length<15) break; }
+      catch(e){ break; }
+    }
+    cacheSave(tag,results); return results;
+  }
+
+  // --- 일반 카테고리(페이지 가변) ---
+  async function searchCategoryInBounds(activeId,bounds){
+    const code = BRAND_CATEGORY[activeId]; if(!code) return [];
+    const tag='cat:'+code;
+    const cached=cacheLoad(tag); if(cached) return cached;
+    const results=[]; const maxPages=pagesForLevel();
+    for(let p=1; p<=maxPages; p++){
+      try{ const {data}=await categorySearchOnce(code,bounds,p); results.push(...data); if(data.length<15) break; }
+      catch(e){ break; }
+    }
+    cacheSave(tag,results); return results;
+  }
+
+  // --- 브랜드 키워드 스캔(보충용) ---
   async function searchBrandsInBounds(activeId,bounds){
     const tag='kw:'+activeId;
     const cached=cacheLoad(tag); if(cached) return cached;
 
     const b = APPLE_BRANDS.find(x=>x.id===activeId);
     if(!b) return [];
-
     const kwList = (b.keywords||[]).slice(0, CFG.MAX_KEYWORDS_PER_SCAN);
     const results=[]; const maxPages=pagesForLevel();
 
@@ -350,58 +270,117 @@
     return results;
   }
 
+  // --- 필터/표시 유틸 ---
+  const containsBounds = (b,lat,lng)=>{
+    return typeof b.contains==='function'
+      ? b.contains(new kakao.maps.LatLng(lat,lng))
+      : (typeof b.contain==='function' ? b.contain(new kakao.maps.LatLng(lat,lng)) : true);
+  };
+  function pickBrandForPlace(place, activeId){
+    const b = APPLE_BRANDS.find(x=>x.id===activeId);
+    if(!b) return null;
+    const nameN = norm(place.place_name||'');
+    return (b.keywords||[]).some(k => nameN.includes(norm(k))) ? b : null;
+  }
+  function buildPopupHTML(place, br, isApple=true){
+    const addr=place.road_address_name||place.address_name||'';
+    const tel=place.phone||''; const url=place.place_url||'';
+    const parts=[];
+    parts.push(`<div class="title">${esc(place.place_name||'상호명')}</div>`);
+    if(addr) parts.push(`<div class="row">주소: ${esc(addr)}</div>`);
+    if(tel) parts.push(`<div class="row">전화: <a href="tel:${esc(tel)}">${esc(tel)}</a></div>`);
+    parts.push(`<div class="row">애플페이: <b>${isApple?'지원':'미확인(일반 검색)'}</b></div>`);
+    if(br) parts.push(`<div class="row">분류: ${esc(br.label)}</div>`);
+    if(url) parts.push(`<div class="row"><a href="${esc(url)}" target="_blank" rel="noopener">상세 보기</a></div>`);
+    return `<div class="popup">${parts.join('')}</div>`;
+  }
+  function createMarker(place, br){
+    const pos=new kakao.maps.LatLng(+place.y,+place.x);
+    const marker=new kakao.maps.Marker({ position: pos, title: place.place_name });
+    kakao.maps.event.addListener(marker,'click',()=>{
+      infowindow.setContent(buildPopupHTML(place, br, true));
+      infowindow.open(map, marker);
+    });
+    marker.__brand=br; marker.__place=place;
+    return marker;
+  }
+  function setMarkersToCluster(markers){
+    if (clusterer && typeof clusterer.clear==='function') clusterer.clear();
+    else if (clusterer){ clusterer.setMap(null); clusterer=new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:6 }); }
+    clusterer.addMarkers(markers);
+  }
+  function clearSearchMarkers(){ searchMarkers.forEach(m=>m.setMap(null)); searchMarkers=[]; isSearchMode=false; }
+  function filterMarkersByText(q){
+    const qq=(q||'').trim().toLowerCase();
+    const filtered=!qq?allMarkers:allMarkers.filter(m=>{
+      const p=m.__place; const hay=`${p.place_name||''} ${p.road_address_name||''} ${p.address_name||''} ${p.phone||''}`.toLowerCase();
+      return hay.includes(qq);
+    });
+    setMarkersToCluster(filtered);
+    return filtered.length;
+  }
+
   // =========================
-  // 단일 카테고리 스캔
+  // 단일 카테고리 스캔 (빠른 1차 → 충분하면 끝, 부족하면 보충)
   // =========================
   function getActiveBrandId(){ return Array.from(activeBrands)[0]; }
 
   async function scanInView(force=false){
-    if(!map) return;
-    if(isSearchMode) return;
+    if(!map || isSearchMode) return;
     if(map.getLevel()>7){ toast('지도를 조금 더 확대해 주세요'); return; }
-    if (isQuotaLocked()){ showQuotaBanner(); toast('API 제한 중: 이미 불러온 결과만 이용 가능'); return; }
-    if (!force && !movedEnough()) return; // 전환 시 강제 스캔 허용
+    if (isQuotaLocked()){ showQuotaBanner(); toast('API 제한 중'); return; }
+    if (!force && !movedEnough()) return;
 
     const activeId=getActiveBrandId();
-    if(!activeId){ toast('카테고리를 선택하세요'); return; }
-
     const activeBrand = APPLE_BRANDS.find(b=>b.id===activeId);
-    toast(`${activeBrand?.label || '카테고리'} 불러오는 중…`);
+    if(!activeBrand){ toast('카테고리를 선택하세요'); return; }
+
     const bounds=map.getBounds();
+    toast(`${activeBrand.label} 찾는 중…`);
 
-    let pooled=[];
-    if (CFG.USE_BRAND_KEYWORD_MODE){
-      pooled = await searchBrandsInBounds(activeId, bounds);
-    }else{
-      const code = BRAND_CATEGORY[activeId];
-      pooled = await searchCategoryInBounds(code, bounds);
+    // 1) 초고속: 카테고리 1페이지만 받아서 브랜드 필터
+    let pooledFast = CFG.FAST_FIRST ? await searchCategoryFast(activeId, bounds) : [];
+    let rows = [];
+    if (pooledFast.length){
+      const uniqFast=new Map();
+      for(const p of pooledFast){
+        const lat=+p.y, lng=+p.x;
+        if(!isFinite(lat)||!isFinite(lng) || !containsBounds(bounds,lat,lng)) continue;
+        const br = pickBrandForPlace(p,activeId);
+        if(!br) continue;
+        if(!uniqFast.has(p.id)) uniqFast.set(p.id,{ place:p, br });
+      }
+      rows = Array.from(uniqFast.values());
+      // 즉시 표시
+      allMarkers = rows.map(({place,br})=>createMarker(place,br));
+      setMarkersToCluster(allMarkers);
+      toast(`표시됨: ${allMarkers.length}곳`);
+      await new Promise(r=>setTimeout(r,0)); // UI 갱신 양보
     }
 
-    const uniq=new Map();
-    for(const p of pooled){
-      const lat=+p.y, lng=+p.x;
-      if(!isFinite(lat)||!isFinite(lng)) continue;
-      const contains = typeof bounds.contains==='function'
-        ? bounds.contains(new kakao.maps.LatLng(lat,lng))
-        : (typeof bounds.contain==='function' ? bounds.contain(new kakao.maps.LatLng(lat,lng)) : true);
-      if(!contains) continue;
+    // 2) 충분하면 종료, 아니면 보충 스캔
+    if (rows.length < CFG.MIN_QUICK_RESULTS){
+      const pooled = CFG.USE_BRAND_KEYWORD_MODE
+        ? await searchBrandsInBounds(activeId, bounds)
+        : await searchCategoryInBounds(activeId, bounds);
 
-      // ✅ 브랜드 키워드 모드일 때는 재검증 없이 현재 카테고리로 태깅
-      const br = CFG.USE_BRAND_KEYWORD_MODE ? activeBrand : pickBrandForPlace(p,activeId);
-      if(!br) continue;
-
-      if(!uniq.has(p.id)) uniq.set(p.id,{ place:p, br });
+      const uniq=new Map();
+      for(const p of pooled){
+        const lat=+p.y, lng=+p.x;
+        if(!isFinite(lat)||!isFinite(lng) || !containsBounds(bounds,lat,lng)) continue;
+        const br = CFG.USE_BRAND_KEYWORD_MODE ? activeBrand : pickBrandForPlace(p,activeId);
+        if(!br) continue;
+        if(!uniq.has(p.id)) uniq.set(p.id,{ place:p, br });
+      }
+      rows = Array.from(uniq.values());
+      allMarkers = rows.map(({place,br})=>createMarker(place,br));
+      setMarkersToCluster(allMarkers);
+      toast(`표시됨: ${allMarkers.length}곳`);
     }
 
-    clearSearchMarkers();
-    const rows=Array.from(uniq.values());
-    allMarkers = rows.map(({place,br})=>createMarker(place,br));
-    setMarkersToCluster(allMarkers);
-
+    // 스캔 상태 저장
     const cc=map.getCenter();
     lastScanState={ lat: cc.getLat(), lng: cc.getLng(), level: map.getLevel() };
-
-    toast(`표시됨: ${allMarkers.length}곳`);
   }
 
   function scheduleScan(){
@@ -410,7 +389,7 @@
   }
 
   // =========================
-  // 검색 (현재 표출 중 마커 우선 필터 → 필요 시 키워드 검색)
+  // 검색 (현재 표출 중 우선 필터 → 필요 시 키워드 검색)
   // =========================
   async function runSearch(){
     const q=($('#search').value||'').trim();
@@ -461,8 +440,8 @@
 
     clearSearchMarkers();
     $('#search').value='';
-    lastScanState=null;      // 전환 즉시 재스캔 허용
-    scanInView(true);        // 강제 스캔
+    lastScanState=null;
+    scanInView(true);
   }
 
   // =========================
@@ -478,7 +457,9 @@
     infowindow = new kakao.maps.InfoWindow({ zIndex: 2 });
     clusterer = new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:6 });
 
-    kakao.maps.event.addListener(map, 'idle', scheduleScan);
+    // idle 대신 분리: 과도한 중복 호출 방지
+    kakao.maps.event.addListener(map, 'dragend', scheduleScan);
+    kakao.maps.event.addListener(map, 'zoom_changed', scheduleScan);
 
     // 기본은 편의점
     setActiveCategory('cstore');
@@ -526,6 +507,36 @@
         if(e.target.tagName!=='INPUT'){ input.checked=true; input.dispatchEvent(new Event('change',{bubbles:true})); }
       });
     });
+  }
+
+  // 내 위치
+  function updateMyLocation(lat,lng,accuracy){
+    const ll=new kakao.maps.LatLng(lat,lng);
+    const acc=Number.isFinite(accuracy)?accuracy:30;
+    const radius=Math.min(Math.max(acc,10),150);
+    const showCircle=acc<=200;
+    if(!meOverlay){
+      meOverlay=new kakao.maps.CustomOverlay({ map, position: ll, yAnchor: .5, zIndex:3, content:'<div class="me-dot pulse"></div>' });
+    }else{ meOverlay.setPosition(ll); }
+    if(!meCircle){
+      meCircle=new kakao.maps.Circle({ map: showCircle?map:null, center: ll, radius, strokeWeight:1, strokeColor:'#2563eb', strokeOpacity:.35, strokeStyle:'solid', fillColor:'#3b82f6', fillOpacity:.10 });
+    }else{
+      meCircle.setOptions({ center: ll, radius }); meCircle.setMap(showCircle?map:null);
+    }
+  }
+  function stopGeolocWatch(){ if(geoWatchId!=null){ navigator.geolocation.clearWatch(geoWatchId); geoWatchId=null; } }
+  function startGeolocWatch(centerOnce=false){
+    if(!navigator.geolocation){ toast('이 브라우저는 위치 기능을 지원하지 않아요'); return; }
+    centerOnFirstFix=!!centerOnce; stopGeolocWatch();
+    geoWatchId=navigator.geolocation.watchPosition(pos=>{
+      const { latitude:lat, longitude:lng, accuracy }=pos.coords;
+      updateMyLocation(lat,lng,accuracy);
+      if(centerOnFirstFix){
+        centerOnFirstFix=false;
+        map.setCenter(new kakao.maps.LatLng(lat,lng)); map.setLevel(4);
+        clearSearchMarkers(); scanInView(true);
+      }
+    }, ()=>{ toast('현재 위치를 가져오지 못했어요'); }, { enableHighAccuracy:true, timeout:15000, maximumAge:10000 });
   }
 
   window.addEventListener('DOMContentLoaded', ()=> kakao.maps.load(init));
