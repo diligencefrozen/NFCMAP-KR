@@ -13,6 +13,9 @@
     .quota-banner{position:fixed;z-index:601;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px)+110px);background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:.6rem;padding:.5rem .75rem;box-shadow:0 2px 10px rgba(0,0,0,.06);display:flex;align-items:center;gap:.6rem}
     .quota-banner button{border:1px solid #fecaca;background:#fff;border-radius:999px;padding:.25rem .6rem;cursor:pointer}
     @media (max-width:600px){.quota-banner{top:calc(env(safe-area-inset-top,0px)+128px);left:8px;right:8px;transform:none;justify-content:space-between}}
+
+    /* 지도 높이 기본값(외부 CSS 미로딩 대비) */
+    #map{min-height:70vh}
   </style>
 </head>
 <body>
@@ -83,19 +86,19 @@
     MAX_KEYWORDS_PER_SCAN: 12
   };
 
-  // 등록된 브랜드만
+  // 등록된 브랜드만 (표기 변형 일부 보강)
   const APPLE_BRANDS = [
-    { id:'cstore', label:'편의점', icon:'🏪', keywords:['GS25','CU','세븐일레븐','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
-    { id:'cafe', label:'카페', icon:'☕', keywords:['스타벅스','투썸플레이스','빽다방','메가커피','이디야커피','더벤티','할리스','공차','커피빈','엔제리너스','폴바셋','파스쿠찌','블루보틀','탐앤탐스','아마스빈','커피베이','테라로사','잠바주스','커피앳웍스','카페스토리웨이','아티제','댄싱컵','팀홀튼','컴포즈커피','카페꼼마','하이오커피','카페봄봄'] },
+    { id:'cstore', label:'편의점', icon:'🏪', keywords:['GS25','GS 25','지에스25','CU','씨유','세븐일레븐','Seven Eleven','이마트24','미니스톱','스토리웨이','씨스페이스24'] },
+    { id:'cafe', label:'카페', icon:'☕', keywords:['스타벅스','Starbucks','투썸플레이스','빽다방','메가커피','MEGA COFFEE','이디야커피','더벤티','할리스','공차','커피빈','엔제리너스','폴바셋','파스쿠찌','블루보틀','탐앤탐스','아마스빈','커피베이','테라로사','잠바주스','커피앳웍스','카페스토리웨이','아티제','댄싱컵','팀홀튼','컴포즈커피','카페꼼마','하이오커피','카페봄봄'] },
     { id:'dstore', label:'백화점,쇼핑', icon:'🛍️', keywords:['롯데백화점','롯데아울렛','롯데몰','롯데면세점','현대백화점','현대아울렛','현대백화점면세점','AK플라자','파르나스몰','아이파크몰','앨리웨이','신라면세점','JDC면세점','스타필드','갤러리아','신세계면세점'] },
-    { id:'mart', label:'마트,슈퍼', icon:'🛒', keywords:['코스트코','롯데마트','롯데슈퍼','홈플러스마트','홈플러스익스프레스','GS더프레시','농협하나로마트','초록마을','식자재왕도매마트','고향뜨락','이마트에브리데이'] },
-    { id:'life', label:'생활,가전', icon:'🔌', keywords:['이케아','다이소','롯데하이마트','LG전자베스트샵','프리스비','에이샵','아이스토어','아트박스','오피스디포','토이저러스','프린트카페','에이스침대'] },
+    { id:'mart', label:'마트,슈퍼', icon:'🛒', keywords:['코스트코','COSTCO','롯데마트','롯데슈퍼','홈플러스마트','홈플러스익스프레스','GS더프레시','농협하나로마트','초록마을','식자재왕도매마트','고향뜨락','이마트에브리데이'] },
+    { id:'life', label:'생활,가전', icon:'🔌', keywords:['이케아','IKEA','다이소','롯데하이마트','LG전자베스트샵','프리스비','에이샵','아이스토어','아트박스','오피스디포','토이저러스','프린트카페','에이스침대'] },
     { id:'fashion', label:'패션,뷰티', icon:'👗', keywords:['올리브영','무신사스탠다드','이니스프리','ABC마트','엠플레이그라운드'] },
     { id:'dessert', label:'제과,디저트', icon:'🍰', keywords:['파리바게뜨','파리크라상','뚜레쥬르','배스킨라빈스','던킨','크리스피크림도넛','디저트39','트리핀','빚은','복호두','쇼콜라팔레트'] },
     { id:'food', label:'외식', icon:'🍽️', keywords:['롯데리아','맥도날드','KFC','쉐이크쉑','라그릴리아','피그인더가든','김가네','봉추찜닭','스트릿','퀸즈파크','라뜰리에','에그슬럿','시티델리','리나스','VIPS','제일제면소','더플레이스','더스테이크하우스','더테이스터블','파파이스','쿠차라','아웃백스테이크하우스','플레이팅','이삭토스트','한솥도시락','파이브가이즈'] },
     { id:'hotel', label:'호텔,리조트', icon:'🏨', keywords:['해비치호텔앤드리조트'] },
     { id:'gstation', label:'주유,충전', icon:'⛽', keywords:['GS칼텍스'] },
-    { id:'movie', label:'영화,도서', icon:'🎬', keywords:['메가박스','롯데시네마'] },  // ← 메가박스 추가
+    { id:'movie', label:'영화,도서', icon:'🎬', keywords:['메가박스','MEGABOX','롯데시네마'] },
     { id:'travel', label:'레저,여행', icon:'🧳', keywords:['서울랜드'] }
   ];
 
@@ -187,7 +190,7 @@
   function hideQuotaBanner(){ const el=$('#quota-banner'); if(el) el.hidden=true; }
   document.addEventListener('click', e=>{ if(e.target && e.target.id==='quota-retry'){ clearQuotaLock(); scanInView(true); } });
 
-  // 브랜드 판정(키워드 매칭만)
+  // 브랜드 판정(카테고리 모드에서만 사용)
   function pickBrandForPlace(place, activeId){
     const b = APPLE_BRANDS.find(x=>x.id===activeId);
     if(!b) return null;
@@ -323,7 +326,7 @@
     }));
   }
 
-  // === 브랜드 키워드로만 스캔(요청사항 반영) ===
+  // === 브랜드 키워드로만 스캔 ===
   async function searchBrandsInBounds(activeId,bounds){
     const tag='kw:'+activeId;
     const cached=cacheLoad(tag); if(cached) return cached;
@@ -357,12 +360,13 @@
     if(isSearchMode) return;
     if(map.getLevel()>7){ toast('지도를 조금 더 확대해 주세요'); return; }
     if (isQuotaLocked()){ showQuotaBanner(); toast('API 제한 중: 이미 불러온 결과만 이용 가능'); return; }
-    if (!force && !movedEnough()) return; // ← 전환 시 강제 스캔 허용
+    if (!force && !movedEnough()) return; // 전환 시 강제 스캔 허용
 
     const activeId=getActiveBrandId();
     if(!activeId){ toast('카테고리를 선택하세요'); return; }
 
-    toast(`${APPLE_BRANDS.find(b=>b.id===activeId)?.label || '카테고리'} 불러오는 중…`);
+    const activeBrand = APPLE_BRANDS.find(b=>b.id===activeId);
+    toast(`${activeBrand?.label || '카테고리'} 불러오는 중…`);
     const bounds=map.getBounds();
 
     let pooled=[];
@@ -382,7 +386,8 @@
         : (typeof bounds.contain==='function' ? bounds.contain(new kakao.maps.LatLng(lat,lng)) : true);
       if(!contains) continue;
 
-      const br=pickBrandForPlace(p,activeId);
+      // ✅ 브랜드 키워드 모드일 때는 재검증 없이 현재 카테고리로 태깅
+      const br = CFG.USE_BRAND_KEYWORD_MODE ? activeBrand : pickBrandForPlace(p,activeId);
       if(!br) continue;
 
       if(!uniq.has(p.id)) uniq.set(p.id,{ place:p, br });
@@ -416,7 +421,7 @@
 
     toast('검색 중… (화면 내)');
     const bounds=map.getBounds();
-    let results=[]; // 브랜드 제한 없이 일반 검색
+    let results=[];
     for(let page=1; page<=CFG.MAX_PAGES; page++){
       try{
         const {data}=await keywordSearchOnce(q,{ bounds },page);
@@ -456,8 +461,8 @@
 
     clearSearchMarkers();
     $('#search').value='';
-    lastScanState=null;              // 전환 즉시 재스캔 허용
-    scanInView(true);                // ★ 강제 스캔으로 버그 해결
+    lastScanState=null;      // 전환 즉시 재스캔 허용
+    scanInView(true);        // 강제 스캔
   }
 
   // =========================
