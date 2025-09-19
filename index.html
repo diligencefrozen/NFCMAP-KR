@@ -286,8 +286,7 @@ function _refillBudget(){
     cacheSave(tag,results); return results;
   }
 
-  // --- 브랜드 키워드 스캔 ---
-  await keywordSearchOnce(kw,{ bounds },page);
+  ,page);
           results.push(...data);
           if(data.length<15) break;
         }catch(e){ break; }
@@ -298,6 +297,17 @@ function _refillBudget(){
   }
 
   
+=await keywordSearchOnce(kw,{ bounds },page);
+        results.push(...data);
+        if(data.length<15) break;
+      }catch(e){ break; }
+    }
+  }
+  cacheSave(tag,results);
+  return results;
+}
+
+
 // --- 브랜드 키워드 스캔(보충용) ---
 async function searchBrandsInBounds(activeId,bounds){
   const tag='kw:'+activeId;
@@ -319,7 +329,7 @@ async function searchBrandsInBounds(activeId,bounds){
   return results;
 }
 
-// --- 필터/표시 유틸 ---
+  // --- 필터/표시 유틸 ---
   const containsBounds = (b,lat,lng)=>{
     return typeof b.contains==='function'
       ? b.contains(new kakao.maps.LatLng(lat,lng))
