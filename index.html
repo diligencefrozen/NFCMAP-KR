@@ -64,33 +64,33 @@
   // =========================
   // Config
   // =========================
-const CFG = {
-    OWNER: 'diligencefrozen',
-    REPO:  'NFCMAP-KR',
-    ISSUE_LABEL: 'add-merchant',
+  const CFG = {
+  OWNER: 'diligencefrozen',
+  REPO:  'NFCMAP-KR',
+  ISSUE_LABEL: 'add-merchant',
 
-    CENTER: { lat: 37.345040, lng: 127.930825 },
-    INIT_LEVEL: 5,
-    MAX_PAGES: 3,
+  CENTER: { lat: 37.345040, lng: 127.930825 },
+  INIT_LEVEL: 5,
+  MAX_PAGES: 3,
 
-    // ── API 제어(쿼터 안정화)
-    API_INTERVAL_MS: 750,      // 280 → 750ms
-    MAX_CONCURRENCY: 1,        // 2 → 1
-    CACHE_TTL_MS: 6 * 60 * 1000,
-    MOVE_FRACTION: 0.35,
-    PAGE_BY_LEVEL: { 1:2, 2:2, 3:2, 4:2, 5:1, 6:1, 7:1 },
+  // ── API 제어(쿼터 안정화)
+  API_INTERVAL_MS: 750,
+  MAX_CONCURRENCY: 1,
+  CACHE_TTL_MS: 6 * 60 * 1000,
+  MOVE_FRACTION: 0.35,
+  PAGE_BY_LEVEL: { 1:2, 2:2, 3:2, 4:2, 5:1, 6:1, 7:1 },
 
-    // ── 스캔/디바운스
-    DEBOUNCE_MS: 700,          // 250 → 700
+  // ── 스캔/디바운스
+  DEBOUNCE_MS: 700,
 
-    // ── 빠른 1차 스캔(카테고리)
-    FAST_FIRST: false,         // true → false (화이트리스트 키워드 위주면 생략)
-    FAST_PAGES: 1,
-    MIN_QUICK_RESULTS: 4,      // 8 → 4
+  // ── 빠른 1차 스캔(카테고리)
+  FAST_FIRST: false,
+  FAST_PAGES: 1,
+  MIN_QUICK_RESULTS: 4,
 
-    // ── 브랜드 키워드 모드
-    USE_BRAND_KEYWORD_MODE: true,
-    MAX_KEYWORDS_PER_SCAN: 3   // 8 → 3
+  // ── 브랜드 키워드 모드
+  USE_BRAND_KEYWORD_MODE: true,
+  MAX_KEYWORDS_PER_SCAN: 3
 };
 
   // 등록된 브랜드(표기 변형 일부 보강)
@@ -115,69 +115,31 @@ const CFG = {
     fashion:'MT1', dessert:'FD6', food:'FD6', hotel:'AD5',
     gstation:'OL7', movie:'CT1', travel:'AT4'
   };
-  
-  // ====== 브랜드 화이트리스트 모드 ======
-  const BRAND_WHITELIST_MODE = true;  // ← 이걸 true로 켜면, 각 카테고리는 여기 지정한 브랜드만 검색
-  const BRAND_WHITELIST = {
 
-    // 편의점
-    cstore: ['GS25','GS 25','지에스25','CU','씨유','세븐일레븐','Seven Eleven','이마트24','미니스톱','스토리웨이','씨스페이스24'],
-    // 카페
-    cafe: ['스타벅스','Starbucks','투썸플레이스','빽다방','메가커피','MEGA COFFEE','이디야커피','더벤티','할리스','공차','커피빈','엔제리너스','폴바셋','파스쿠찌','블루보틀','탐앤탐스','아마스빈','커피베이','테라로사','잠바주스','커피앳웍스','카페스토리웨이','아티제','댄싱컵','팀홀튼','컴포즈커피','카페꼼마','하이오커피','카페봄봄'],
-    // 백화점,쇼핑
-    dstore: ['롯데백화점','롯데아울렛','롯데몰','롯데면세점','현대백화점','현대아울렛','현대백화점면세점','AK플라자','파르나스몰','아이파크몰','앨리웨이','신라면세점','JDC면세점','스타필드','갤러리아','신세계면세점']
-    // 마트,슈퍼
-    mart: ['코스트코','COSTCO','롯데마트','롯데슈퍼','홈플러스마트','홈플러스익스프레스','GS더프레시','농협하나로마트','초록마을','식자재왕도매마트','고향뜨락','이마트에브리데이']
-    // 생활,가전
-    life: ['이케아','IKEA','다이소','롯데하이마트','LG전자베스트샵','프리스비','에이샵','아이스토어','아트박스','오피스디포','토이저러스','프린트카페','에이스침대']
-    // 패션,뷰티
-    fashion: ['올리브영','무신사스탠다드','이니스프리','ABC마트','엠플레이그라운드']
-    // 제과,디저트
-    dessert: ['파리바게뜨','파리크라상','뚜레쥬르','배스킨라빈스','던킨','크리스피크림도넛','디저트39','트리핀','빚은','복호두','쇼콜라팔레트']
-    // 외식
-    food: ['롯데리아','맥도날드','KFC','쉐이크쉑','라그릴리아','피그인더가든','김가네','봉추찜닭','스트릿','퀸즈파크','라뜰리에','에그슬럿','시티델리','리나스','VIPS','제일제면소','더플레이스','더스테이크하우스','더테이스터블','파파이스','쿠차라','아웃백스테이크하우스','플레이팅','이삭토스트','한솥도시락','파이브가이즈']
-    // 호텔,리조트
-    hotel: ['해비치호텔앤드리조트']
-    // 주유,충전
-    gstation: ['GS칼텍스']
-    // 영화,도서
-    movie: ['메가박스','MEGABOX','롯데시네마']
-    // 레저,여행
-    travel: ['서울랜드']
+// ====== 브랜드 화이트리스트 모드 ======
+const BRAND_WHITELIST_MODE = true; // true면 아래 지정한 브랜드 키워드만 검색
+const BRAND_WHITELIST = {
+  // 편의점 (예: 세븐일레븐만 원하면 배열을 ['세븐일레븐','Seven Eleven'] 로 줄이세요)
+  cstore: ['세븐일레븐','Seven Eleven'],
+  // 카페 (스타벅스만)
+  cafe: ['스타벅스','Starbucks'],
+  // 백화점,쇼핑 (현대계열 위주)
+  dstore: ['현대백화점','현대아울렛','더현대','현대시티아울렛']
 };
 
 // 키워드 목록을 화이트리스트로 좁혀주는 도우미
 function getKeywordsForBrandId(brandId){
-    const base = (APPLE_BRANDS.find(x=>x.id===brandId)?.keywords)||[];
-    if(!BRAND_WHITELIST_MODE) return base;
-    const wl = BRAND_WHITELIST[brandId];
-    if(!wl || !wl.length) return base;
-    const N = s => (s||'').toLowerCase().replace(/\s+/g,'');
-    return base.filter(k => wl.some(w => {
-        const nk = N(k), nw = N(w);
-        return nk.includes(nw) || nw.includes(nk);
-    }));
+  const base = (APPLE_BRANDS.find(x=>x.id===brandId)?.keywords)||[];
+  if(!BRAND_WHITELIST_MODE) return base;
+  const wl = BRAND_WHITELIST[brandId];
+  if(!wl || !wl.length) return base;
+  const N = s => (s||'').toLowerCase().replace(/\s+/g,'');
+  return base.filter(k => wl.some(w => {
+    const nk = N(k), nw = N(w);
+    return nk.includes(nw) || nw.includes(nk);
+  }));
 }
 
-async function searchBrandsInBounds(activeId,bounds){
-    const tag='kw:'+activeId;
-    const cached=cacheLoad(tag); if(cached) return cached;
-
-    const kwList = getKeywordsForBrandId(activeId).slice(0, CFG.MAX_KEYWORDS_PER_SCAN);
-    const results=[]; const maxPages=pagesForLevel();
-    
-    for(const kw of kwList){
-        for(let page=1; page<=maxPages; page++){
-            try{
-                const {data}=await keywordSearchOnce(kw,{ bounds },page);
-                results.push(...data);
-                if(data.length<15) break;
-            }catch(e){ break; }
-        }
-    }
-    cacheSave(tag,results);
-    return results;
-}
 
   // =========================
   // State
@@ -314,19 +276,7 @@ async function searchBrandsInBounds(activeId,bounds){
   }
 
   // --- 브랜드 키워드 스캔(보충용) ---
-  async function searchBrandsInBounds(activeId,bounds){
-    const tag='kw:'+activeId;
-    const cached=cacheLoad(tag); if(cached) return cached;
-
-    const b = APPLE_BRANDS.find(x=>x.id===activeId);
-    if(!b) return [];
-    const kwList = (b.keywords||[]).slice(0, CFG.MAX_KEYWORDS_PER_SCAN);
-    const results=[]; const maxPages=pagesForLevel();
-
-    for(const kw of kwList){
-      for(let page=1; page<=maxPages; page++){
-        try{
-          const {data}=await keywordSearchOnce(kw,{ bounds },page);
+  =await keywordSearchOnce(kw,{ bounds },page);
           results.push(...data);
           if(data.length<15) break;
         }catch(e){ break; }
@@ -336,7 +286,29 @@ async function searchBrandsInBounds(activeId,bounds){
     return results;
   }
 
-  // --- 필터/표시 유틸 ---
+  
+// --- 브랜드 키워드 스캔(보충용) ---
+async function searchBrandsInBounds(activeId,bounds){
+  const tag='kw:'+activeId;
+  const cached=cacheLoad(tag); if(cached) return cached;
+
+  const kwList = getKeywordsForBrandId(activeId).slice(0, CFG.MAX_KEYWORDS_PER_SCAN);
+  const results=[]; const maxPages=pagesForLevel();
+
+  for(const kw of kwList){
+    for(let page=1; page<=maxPages; page++){
+      try{
+        const {data}=await keywordSearchOnce(kw,{ bounds },page);
+        results.push(...data);
+        if(data.length<15) break;
+      }catch(e){ break; }
+    }
+  }
+  cacheSave(tag,results);
+  return results;
+}
+
+// --- 필터/표시 유틸 ---
   const containsBounds = (b,lat,lng)=>{
     return typeof b.contains==='function'
       ? b.contains(new kakao.maps.LatLng(lat,lng))
@@ -392,7 +364,7 @@ async function searchBrandsInBounds(activeId,bounds){
   function getActiveBrandId(){ return Array.from(activeBrands)[0]; }
 
   async function scanInView(force=false){
-    if(!map || isSearchMode) return;
+    const __now = Date.now(); if(!force && __now - lastScanAt < 1200) return; if(!map || isSearchMode) return;
     if(map.getLevel()>7){ toast('지도를 조금 더 확대해 주세요'); return; }
     if (isQuotaLocked()){ showQuotaBanner(); toast('API 제한 중'); return; }
     if (!force && !movedEnough()) return;
@@ -405,10 +377,7 @@ async function searchBrandsInBounds(activeId,bounds){
     toast(`${activeBrand.label} 찾는 중…`);
 
     // 1) 초고속: 카테고리 1페이지만 받아서 브랜드 필터
-    let pooledFast = (BRAND_WHITELIST_MODE || !CFG.FAST_FIRST)
-    ? []
-    : await searchCategoryFast(activeId, bounds);
-
+    let pooledFast = (BRAND_WHITELIST_MODE || !CFG.FAST_FIRST) ? [] : await searchCategoryFast(activeId, bounds);
     let rows = [];
     if (pooledFast.length){
       const uniqFast=new Map();
@@ -447,7 +416,8 @@ async function searchBrandsInBounds(activeId,bounds){
       toast(`표시됨: ${allMarkers.length}곳`);
     }
 
-    // 스캔 상태 저장
+    lastScanAt = Date.now();
+// 스캔 상태 저장
     const cc=map.getCenter();
     lastScanState={ lat: cc.getLat(), lng: cc.getLng(), level: map.getLevel() };
   }
