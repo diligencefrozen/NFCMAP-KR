@@ -64,31 +64,34 @@
   // =========================
   // Config
   // =========================
-  const CFG = {
+const CFG = {
     OWNER: 'diligencefrozen',
     REPO:  'NFCMAP-KR',
     ISSUE_LABEL: 'add-merchant',
+
     CENTER: { lat: 37.345040, lng: 127.930825 },
     INIT_LEVEL: 5,
     MAX_PAGES: 3,
-    DEBOUNCE_MS: 250,
 
-    // API 제어
-    API_INTERVAL_MS: 280,         // 시작 간격
-    MAX_CONCURRENCY: 2,           // 동시에 2개까지만
-    CACHE_TTL_MS: 6 * 60 * 1000,  // 6분 캐시
+    // ── API 제어(쿼터 안정화)
+    API_INTERVAL_MS: 750,      // 280 → 750ms
+    MAX_CONCURRENCY: 1,        // 2 → 1
+    CACHE_TTL_MS: 6 * 60 * 1000,
     MOVE_FRACTION: 0.35,
     PAGE_BY_LEVEL: { 1:2, 2:2, 3:2, 4:2, 5:1, 6:1, 7:1 },
 
-    // 빠른 1차 스캔(카테고리 1페이지만)
-    FAST_FIRST: true,
-    FAST_PAGES: 1,
-    MIN_QUICK_RESULTS: 8,         // 이 이상이면 키워드스캔 생략
+    // ── 스캔/디바운스
+    DEBOUNCE_MS: 700,          // 250 → 700
 
-    // 브랜드 키워드 모드(보충용)
+    // ── 빠른 1차 스캔(카테고리)
+    FAST_FIRST: false,         // true → false (화이트리스트 키워드 위주면 생략)
+    FAST_PAGES: 1,
+    MIN_QUICK_RESULTS: 4,      // 8 → 4
+
+    // ── 브랜드 키워드 모드
     USE_BRAND_KEYWORD_MODE: true,
-    MAX_KEYWORDS_PER_SCAN: 8
-  };
+    MAX_KEYWORDS_PER_SCAN: 3   // 8 → 3
+};
 
   // 등록된 브랜드(표기 변형 일부 보강)
   const APPLE_BRANDS = [
@@ -159,7 +162,7 @@ function getKeywordsForBrandId(brandId){
 async function searchBrandsInBounds(activeId,bounds){
     const tag='kw:'+activeId;
     const cached=cacheLoad(tag); if(cached) return cached;
-    
+
     const kwList = getKeywordsForBrandId(activeId).slice(0, CFG.MAX_KEYWORDS_PER_SCAN);
     const results=[]; const maxPages=pagesForLevel();
     
@@ -402,7 +405,10 @@ async function searchBrandsInBounds(activeId,bounds){
     toast(`${activeBrand.label} 찾는 중…`);
 
     // 1) 초고속: 카테고리 1페이지만 받아서 브랜드 필터
-    let pooledFast = CFG.FAST_FIRST ? await searchCategoryFast(activeId, bounds) : [];
+    let pooledFast = (BRAND_WHITELIST_MODE || !CFG.FAST_FIRST)
+    ? []
+    : await searchCategoryFast(activeId, bounds);
+
     let rows = [];
     if (pooledFast.length){
       const uniqFast=new Map();
