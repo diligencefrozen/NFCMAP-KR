@@ -8,12 +8,17 @@
   <meta name="color-scheme" content="light" />
   <!-- Kakao Maps JS -->
   <script defer src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=417a1b970f5ba6f44fd53958e58f47bb&libraries=services,clusterer&autoload=false"></script>
+  <script>window.addEventListener('resize', ()=>{ try{ map && map.relayout(); }catch(_){} });</script>
 
   <style>
     .quota-banner{position:fixed;z-index:601;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px)+110px);background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:.6rem;padding:.5rem .75rem;box-shadow:0 2px 10px rgba(0,0,0,.06);display:flex;align-items:center;gap:.6rem}
     .quota-banner button{border:1px solid #fecaca;background:#fff;border-radius:999px;padding:.25rem .6rem;cursor:pointer}
     @media (max-width:600px){.quota-banner{top:calc(env(safe-area-inset-top,0px)+128px);left:8px;right:8px;transform:none;justify-content:space-between}}
-    #map{min-height:70vh;height:calc(100vh - 180px)}
+    html,body{height:100%;margin:0}
+    body{display:flex;flex-direction:column}
+    .topbar,.chipbar{flex:0 0 auto}
+    #map{flex:1 1 auto;min-height:0;height:auto !important}
+    .toast,.quota-banner{position:fixed}
   </style>
 </head>
 <body>
