@@ -34,7 +34,7 @@
 
   <!-- 브랜드 필터(단일 선택) -->
   <div class="chipbar" role="group" aria-label="브랜드 필터">
-    <label class="chip active" data-brand="cstore"><input type="checkbox" checked>🏪 편의점</label>
+    <label class="chip" data-brand="cstore"><input type="checkbox">🏪 편의점</label>
     <label class="chip" data-brand="cafe"><input type="checkbox">☕ 카페</label>
     <label class="chip" data-brand="dstore"><input type="checkbox">🛍️ 백화점,쇼핑</label>
     <label class="chip" data-brand="mart"><input type="checkbox">🛒 마트,슈퍼</label>
@@ -71,14 +71,14 @@
 
   CENTER: { lat: 37.345040, lng: 127.930825 },
   INIT_LEVEL: 5,
-  MAX_PAGES: 3,
+  MAX_PAGES: 2,
 
   // ── API 제어(쿼터 안정화)
   API_INTERVAL_MS: 750,
   MAX_CONCURRENCY: 1,
   CACHE_TTL_MS: 6 * 60 * 1000,
   MOVE_FRACTION: 0.35,
-  PAGE_BY_LEVEL: { 1:2, 2:2, 3:2, 4:2, 5:1, 6:1, 7:1 },
+  PAGE_BY_LEVEL: { 1:1, 2:1, 3:1, 4:1, 5:1, 6:1, 7:1 },
 
   // ── 스캔/디바운스
   DEBOUNCE_MS: 700,
@@ -90,7 +90,7 @@
 
   // ── 브랜드 키워드 모드
   USE_BRAND_KEYWORD_MODE: true,
-  MAX_KEYWORDS_PER_SCAN: 3
+  MAX_KEYWORDS_PER_SCAN: 2
 };
 
   // 등록된 브랜드(표기 변형 일부 보강)
@@ -149,11 +149,22 @@ function getKeywordsForBrandId(brandId){
   let searchMarkers = [];
   let debounceTimer = null;
   let isSearchMode = false;
-  const activeBrands = new Set(['cstore']);
+  const activeBrands = new Set();
   let meOverlay = null, meCircle = null, geoWatchId = null, centerOnFirstFix = false;
 
   // ----- 요청 스케줄러 (간격 + 소량 병렬) -----
   const _q = { queue: [], inflight: 0, lastAt: 0 };
+
+// --- 요청 예산(자체 속도 제한) ---
+const BUDGET = { max: 20, tokens: 20, refillMs: 60000, last: Date.now() };
+function _refillBudget(){
+  const nowTs = Date.now();
+  if (nowTs - BUDGET.last >= BUDGET.refillMs){
+    BUDGET.tokens = BUDGET.max;
+    BUDGET.last = nowTs;
+  }
+}
+
   function enqueueKakao(maker){
     return new Promise((resolve, reject)=>{
       _q.queue.push({ maker, resolve, reject });
@@ -364,7 +375,7 @@ async function searchBrandsInBounds(activeId,bounds){
   function getActiveBrandId(){ return Array.from(activeBrands)[0]; }
 
   async function scanInView(force=false){
-    const __now = Date.now(); if(!force && __now - lastScanAt < 1200) return; if(!map || isSearchMode) return;
+    if (activeBrands.size===0) return; const __now = Date.now(); if(!force && __now - lastScanAt < 1200) return; if(!map || isSearchMode) return;
     if(map.getLevel()>7){ toast('지도를 조금 더 확대해 주세요'); return; }
     if (isQuotaLocked()){ showQuotaBanner(); toast('API 제한 중'); return; }
     if (!force && !movedEnough()) return;
@@ -423,9 +434,10 @@ async function searchBrandsInBounds(activeId,bounds){
   }
 
   function scheduleScan(){
-    clearTimeout(debounceTimer);
-    debounceTimer=setTimeout(()=>{ if (movedEnough()) scanInView(false); }, CFG.DEBOUNCE_MS);
-  }
+  if (activeBrands.size===0) return;
+  clearTimeout(debounceTimer);
+  debounceTimer=setTimeout(()=>{ if (movedEnough()) scanInView(false); }, CFG.DEBOUNCE_MS);
+}
 
   // =========================
   // 검색 (현재 표출 중 우선 필터 → 필요 시 키워드 검색)
@@ -500,23 +512,18 @@ async function searchBrandsInBounds(activeId,bounds){
     kakao.maps.event.addListener(map, 'dragend', scheduleScan);
     kakao.maps.event.addListener(map, 'zoom_changed', scheduleScan);
 
-    // 기본은 편의점
-    setActiveCategory('cstore');
-
-    // 위치
+    // 기본 선택 없음: 사용자가 카테고리를 눌러야 조회됩니다.
+// setActiveCategory('cstore');// 위치
     if(navigator.geolocation){
       navigator.geolocation.getCurrentPosition(pos=>{
         const { latitude, longitude, accuracy } = pos.coords;
         map.setCenter(new kakao.maps.LatLng(latitude, longitude));
         map.setLevel(4);
         updateMyLocation(latitude, longitude, accuracy);
-        scanInView(true);
       }, ()=> scanInView(true), { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
 
       startGeolocWatch(false);
-    }else{
-      scanInView(true);
-    }
+    }else{/* no autoscan */}
 
     // 버튼
     $('#btn-geoloc').addEventListener('click', ()=> startGeolocWatch(true));
