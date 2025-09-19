@@ -286,27 +286,6 @@ function _refillBudget(){
     cacheSave(tag,results); return results;
   }
 
-  ,page);
-          results.push(...data);
-          if(data.length<15) break;
-        }catch(e){ break; }
-      }
-    }
-    cacheSave(tag,results);
-    return results;
-  }
-
-  
-=await keywordSearchOnce(kw,{ bounds },page);
-        results.push(...data);
-        if(data.length<15) break;
-      }catch(e){ break; }
-    }
-  }
-  cacheSave(tag,results);
-  return results;
-}
-
 
 // --- 브랜드 키워드 스캔(보충용) ---
 async function searchBrandsInBounds(activeId,bounds){
