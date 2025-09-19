@@ -144,26 +144,37 @@
 };
 
 // 키워드 목록을 화이트리스트로 좁혀주는 도우미
-function norm(s){ return (s||'').toLowerCase().replace(/\s+/g,'').trim(); } // 파일 내에 이미 norm이 있으면 이 함수는 생략
 function getKeywordsForBrandId(brandId){
-  const b = (APPLE_BRANDS||[]).find(x=>x.id===brandId);
-  if(!b) return [];
-  const base = Array.isArray(b.keywords) ? b.keywords : [];
-  if(!BRAND_WHITELIST_MODE) return base;
-
-  const wl = BRAND_WHITELIST[brandId];
-  if(!wl || wl.length===0) return base; // 화이트리스트 없으면 기존 전체 키워드
-
-  // 화이트리스트에 들어있는 것만 남김 (표기 변형 방어)
-  return base.filter(k => {
-    const nk = norm(k);
-    return wl.some(w => {
-      const nw = norm(w);
-      return nk.includes(nw) || nw.includes(nk);
-    });
-  });
+    const base = (APPLE_BRANDS.find(x=>x.id===brandId)?.keywords)||[];
+    if(!BRAND_WHITELIST_MODE) return base;
+    const wl = BRAND_WHITELIST[brandId];
+    if(!wl || !wl.length) return base;
+    const N = s => (s||'').toLowerCase().replace(/\s+/g,'');
+    return base.filter(k => wl.some(w => {
+        const nk = N(k), nw = N(w);
+        return nk.includes(nw) || nw.includes(nk);
+    }));
 }
 
+async function searchBrandsInBounds(activeId,bounds){
+    const tag='kw:'+activeId;
+    const cached=cacheLoad(tag); if(cached) return cached;
+    
+    const kwList = getKeywordsForBrandId(activeId).slice(0, CFG.MAX_KEYWORDS_PER_SCAN);
+    const results=[]; const maxPages=pagesForLevel();
+    
+    for(const kw of kwList){
+        for(let page=1; page<=maxPages; page++){
+            try{
+                const {data}=await keywordSearchOnce(kw,{ bounds },page);
+                results.push(...data);
+                if(data.length<15) break;
+            }catch(e){ break; }
+        }
+    }
+    cacheSave(tag,results);
+    return results;
+}
 
   // =========================
   // State
